@@ -5,7 +5,7 @@ info:
   version: "1.0.0"
 
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8080/api/v1
     description: Development server
 
 paths:
@@ -50,9 +50,25 @@ paths:
         '401':
           description: Unauthorized
 
+  /auth/logout/{token}:
+    get:
+      summary: Logout user
+      tags: ["Authentication"]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Logout successful
+        '400':
+          description: Invalid token
+
   /auth/me:
     get:
-      summary: Get current user
+      summary: Get current user profile
       tags: ["Authentication"]
       security:
         - bearerAuth: []
@@ -66,7 +82,7 @@ paths:
         '401':
           description: Unauthorized
     put:
-      summary: Update current user
+      summary: Update current user profile
       tags: ["Authentication"]
       security:
         - bearerAuth: []
@@ -88,8 +104,164 @@ paths:
         '401':
           description: Unauthorized
 
+  /auth/password/forgot:
+    post:
+      summary: Forgot password
+      tags: ["Authentication"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPassword'
+      responses:
+        '200':
+          description: Password reset email sent
+        '400':
+          description: Invalid input
+
+  /auth/password/reset/{token}:
+    put:
+      summary: Reset password
+      tags: ["Authentication"]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPassword'
+      responses:
+        '200':
+          description: Password reset successful
+        '400':
+          description: Invalid token or input
+
+  /auth/password/update:
+    put:
+      summary: Update password
+      tags: ["Authentication"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePassword'
+      responses:
+        '200':
+          description: Password updated successfully
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+
+  /auth/admin/users:
+    get:
+      summary: Get all users (admin)
+      tags: ["Authentication", "Admin"]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /auth/admin/user/{id}:
+    get:
+      summary: Get user details by ID (admin)
+      tags: ["Authentication", "Admin"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+    put:
+      summary: Update user by ID (admin)
+      tags: ["Authentication", "Admin"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUser'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+    delete:
+      summary: Delete user by ID (admin)
+      tags: ["Authentication", "Admin"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: User deleted successfully
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: User not found
+
   # Products
-  /products:
+  /product/products:
     get:
       summary: Get all products
       tags: ["Products"]
@@ -102,9 +274,11 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Product'
+
+  /product/new:
     post:
-      summary: Create a new product
-      tags: ["Products"]
+      summary: Create a new product (admin)
+      tags: ["Products", "Admin"]
       security:
         - bearerAuth: []
       requestBody:
@@ -122,8 +296,10 @@ paths:
                 $ref: '#/components/schemas/Product'
         '401':
           description: Unauthorized
+        '403':
+          description: Forbidden
 
-  /products/{id}:
+  /product/product/{id}:
     get:
       summary: Get a product by ID
       tags: ["Products"]
@@ -142,9 +318,31 @@ paths:
                 $ref: '#/components/schemas/Product'
         '404':
           description: Product not found
+
+  /product/admin/products:
+    get:
+      summary: Get all products (admin)
+      tags: ["Products", "Admin"]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /product/admin/product/{id}:
     put:
-      summary: Update a product
-      tags: ["Products"]
+      summary: Update a product (admin)
+      tags: ["Products", "Admin"]
       security:
         - bearerAuth: []
       parameters:
@@ -168,11 +366,13 @@ paths:
                 $ref: '#/components/schemas/Product'
         '401':
           description: Unauthorized
+        '403':
+          description: Forbidden
         '404':
           description: Product not found
     delete:
-      summary: Delete a product
-      tags: ["Products"]
+      summary: Delete a product (admin)
+      tags: ["Products", "Admin"]
       security:
         - bearerAuth: []
       parameters:
@@ -186,27 +386,78 @@ paths:
           description: Product deleted successfully
         '401':
           description: Unauthorized
+        '403':
+          description: Forbidden
         '404':
           description: Product not found
 
-  # Orders
-  /orders:
-    get:
-      summary: Get user's orders
-      tags: ["Orders"]
+  /product/review:
+    put:
+      summary: Create or update a product review
+      tags: ["Products"]
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewReview'
       responses:
         '200':
-          description: A list of orders
+          description: Review created/updated successfully
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+
+  /product/reviews:
+    get:
+      summary: Get all reviews for a product
+      tags: ["Products"]
+      parameters:
+        - name: product_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A list of reviews
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Order'
+                  $ref: '#/components/schemas/Review'
+        '404':
+          description: Product not found
+    delete:
+      summary: Delete a product review
+      tags: ["Products"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: product_id
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: review_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Review deleted successfully
         '401':
           description: Unauthorized
+        '404':
+          description: Review not found
+
+  # Orders
+  /orders/new:
     post:
       summary: Create a new order
       tags: ["Orders"]
@@ -225,6 +476,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
+        '401':
+          description: Unauthorized
+
+  /orders/me:
+    get:
+      summary: Get current user's orders
+      tags: ["Orders"]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of the current user's orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
         '401':
           description: Unauthorized
 
@@ -251,9 +520,31 @@ paths:
           description: Unauthorized
         '404':
           description: Order not found
+
+  /orders/admin/orders:
+    get:
+      summary: Get all orders (admin)
+      tags: ["Orders", "Admin"]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of all orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /orders/admin/order/{id}:
     put:
-      summary: Update an order's status
-      tags: ["Orders"]
+      summary: Update an order's status (admin)
+      tags: ["Orders", "Admin"]
       security:
         - bearerAuth: []
       parameters:
@@ -277,13 +568,35 @@ paths:
                 $ref: '#/components/schemas/Order'
         '401':
           description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Order not found
+    delete:
+      summary: Delete an order (admin)
+      tags: ["Orders", "Admin"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Order deleted successfully
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
         '404':
           description: Order not found
 
   # Payment
-  /payment/stripe:
+  /payment/process:
     post:
-      summary: Process a Stripe payment
+      summary: Process a payment
       tags: ["Payment"]
       security:
         - bearerAuth: []
@@ -292,10 +605,29 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/StripePaymentRequest'
+              $ref: '#/components/schemas/PaymentRequest'
       responses:
         '200':
           description: Payment successful
+        '401':
+          description: Unauthorized
+
+  /payment/stripeapi:
+    get:
+      summary: Get Stripe API key
+      tags: ["Payment"]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Stripe API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stripeApiKey:
+                    type: string
         '401':
           description: Unauthorized
 
@@ -326,6 +658,19 @@ components:
       properties:
         email: { type: string, format: email, example: "john.doe@example.com" }
         password: { type: string, format: password, example: "strongpassword123" }
+    ForgotPassword:
+      type: object
+      properties:
+        email: { type: string, format: email, example: "john.doe@example.com" }
+    ResetPassword:
+      type: object
+      properties:
+        password: { type: string, format: password, example: "newstrongpassword123" }
+    UpdatePassword:
+      type: object
+      properties:
+        old_password: { type: string, format: password, example: "strongpassword123" }
+        new_password: { type: string, format: password, example: "newstrongpassword123" }
     AuthToken:
       type: object
       properties:
@@ -348,8 +693,10 @@ components:
         description: { type: string, example: "A powerful laptop" }
         price: { type: number, format: float, example: 1299.99 }
         stock: { type: integer, example: 50 }
-        image: { type: string, format: url, example: "http://example.com/image.png" }
-        category_id: { type: integer, example: 4 }
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
     NewProduct:
       type: object
       properties:
@@ -357,7 +704,6 @@ components:
         description: { type: string, example: "The latest and greatest gadget" }
         price: { type: number, format: float, example: 199.99 }
         stock: { type: integer, example: 100 }
-        category_id: { type: integer, example: 4 }
     UpdateProduct:
       type: object
       properties:
@@ -365,7 +711,20 @@ components:
         description: { type: string, example: "An even better description" }
         price: { type: number, format: float, example: 179.99 }
         stock: { type: integer, example: 150 }
-        category_id: { type: integer, example: 4 }
+    Review:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        user_id: { type: integer, example: 1 }
+        name: { type: string, example: "John Doe" }
+        rating: { type: integer, example: 5 }
+        comment: { type: string, example: "Great product!" }
+    NewReview:
+      type: object
+      properties:
+        product_id: { type: integer, example: 1 }
+        rating: { type: integer, example: 5 }
+        comment: { type: string, example: "This is awesome!" }
 
     # Order Schemas
     Order:
@@ -400,7 +759,7 @@ components:
         status: { type: string, example: "shipped" }
 
     # Payment Schemas
-    StripePaymentRequest:
+    PaymentRequest:
       type: object
       properties:
         order_id: { type: integer, example: 101 }

@@ -1,42 +1,112 @@
 # Shopit API
 
-Shopit API is a backend service for an e-commerce platform. It provides endpoints for managing products, users, orders, and payments.
+## About The Project
+
+Shopit API is a robust and feature-rich backend service for a modern e-commerce platform. It's built with Go and follows best practices for building scalable and maintainable web services.
+
+This API provides a comprehensive set of endpoints to power a full-featured online store, including:
+
+*   **Complete User Authentication:**
+    *   Secure user registration and login with password hashing (bcrypt).
+    *   Token-based authentication for protected routes.
+    *   Password recovery mechanism with email-based token reset.
+    *   Role-based access control, with distinct permissions for regular users and administrators.
+    *   Full user profile management.
+
+*   **Advanced Product Management:**
+    *   CRUD operations for products.
+    *   Support for product reviews and ratings.
+    *   Image uploads for products, leveraging Cloudinary for cloud-based media management.
+    *   Admin-only endpoints for managing the entire product catalog.
+
+*   **Comprehensive Order Management:**
+    *   Users can create new orders from products in the catalog.
+    *   Users can view their order history.
+    *   Admins can view and manage all orders in the system, including updating order status (e.g., from 'pending' to 'shipped').
+
+*   **Secure Payment Processing:**
+    *   Integration with Stripe for secure and reliable payment processing.
+
+*   **And more:**
+    *   Structured logging with Zap for better observability.
+    *   Configuration management with Viper.
+    *   A complete database schema with migrations.
+
+The API is designed to be RESTful and easy to consume by any front-end client (web or mobile).
+
 
 ## Features
 
-- **User Authentication**: User registration and login.
-- **Product Management**: CRUD operations for products.
-- **Order Management**: Create, retrieve, and update orders.
-- **Payment Processing**: Integration with Stripe for payments.
-- **Image Uploads**: Cloudinary integration for product image uploads.
+### User Features:
+- User registration and login
+- Product browsing, searching, and filtering
+- Product details view with reviews
+- Add to cart functionality
+- Checkout process with shipping information and payment
+- Order history and details
+- User profile management (update profile, password)
+- Forgot and reset password functionality
+
+### Admin Features:
+- Admin dashboard with a summary of sales, products, orders, and users
+- Product management (create, update, delete products)
+- Order management (view, process, and delete orders)
+- User management (view, update, and delete users)
+- View and delete product reviews
 
 ## API Endpoints
+
+The base URL for all endpoints is `/api/v1`.
 
 ### Authentication
 
 - `POST /auth/register`: Register a new user.
 - `POST /auth/login`: Login a user.
-- `GET /auth/me`: Get the currently authenticated user.
-- `PUT /auth/me`: Update the currently authenticated user.
+- `GET /auth/logout/{token}`: Logout user.
+- `GET /auth/me`: Get current user profile.
+- `PUT /auth/me`: Update current user profile.
+- `POST /auth/password/forgot`: Forgot password.
+- `PUT /auth/password/reset/{token}`: Reset password.
+- `PUT /auth/password/update`: Update password.
+
+### Authentication (Admin)
+
+- `GET /auth/admin/users`: Get all users.
+- `GET /auth/admin/user/{id}`: Get user details by ID.
+- `PUT /auth/admin/user/{id}`: Update user by ID.
+- `DELETE /auth/admin/user/{id}`: Delete user by ID.
 
 ### Products
 
-- `GET /products`: Get all products.
-- `GET /products/{id}`: Get a single product by ID.
-- `POST /products`: Create a new product (authentication required).
-- `PUT /products/{id}`: Update a product (authentication required).
-- `DELETE /products/{id}`: Delete a product (authentication required).
+- `GET /product/products`: Get all products.
+- `GET /product/product/{id}`: Get a product by ID.
+- `PUT /product/review`: Create or update a product review.
+- `GET /product/reviews`: Get all reviews for a product.
+- `DELETE /product/reviews`: Delete a product review.
+
+### Products (Admin)
+
+- `POST /product/new`: Create a new product.
+- `GET /product/admin/products`: Get all products.
+- `PUT /product/admin/product/{id}`: Update a product.
+- `DELETE /product/admin/product/{id}`: Delete a product.
 
 ### Orders
 
-- `GET /orders`: Get all orders for the authenticated user.
-- `GET /orders/{id}`: Get a single order by ID.
-- `POST /orders`: Create a new order.
-- `PUT /orders/{id}`: Update an order.
+- `POST /orders/new`: Create a new order.
+- `GET /orders/me`: Get current user's orders.
+- `GET /orders/{id}`: Get an order by ID.
+
+### Orders (Admin)
+
+- `GET /orders/admin/orders`: Get all orders.
+- `PUT /orders/admin/order/{id}`: Update an order's status.
+- `DELETE /orders/admin/order/{id}`: Delete an order.
 
 ### Payment
 
-- `POST /payment/stripe`: Process a payment with Stripe.
+- `POST /payment/process`: Process a payment.
+- `GET /payment/stripeapi`: Get Stripe API key.
 
 ## Technologies Used
 
