@@ -146,57 +146,57 @@ The base URL for all endpoints is `/api/v1`.
     Create a `config-local.yml` file in the `config` directory. You can copy the structure from `config/config.go`.
 
     ```yaml
-server:
-  AppVersion: 1.0.0
-  Port: 5000
-  PprofPort: ":5555"
-  Mode: Development
-  JwtSecretKey: "your_jwt_secret_key"
-  CookieName: "jwt-token"
-  ReadTimeout: 5
-  WriteTimeout: 5
-  SSL: false
-  CtxDefaultTimeout: 12
-  CSRF: true
-  Debug: false
+    server:
+      AppVersion: 1.0.0
+      Port: 5000
+      PprofPort: ":5555"
+      Mode: Development
+      JwtSecretKey: "your_jwt_secret_key"
+      CookieName: "jwt-token"
+      ReadTimeout: 5
+      WriteTimeout: 5
+      SSL: false
+      CtxDefaultTimeout: 12
+      CSRF: true
+      Debug: false
 
-logger:
-  Development: true
-  DisableCaller: false
-  DisableStacktrace: false
-  Encoding: "console"
-  Level: "info"
+    logger:
+      Development: true
+      DisableCaller: false
+      DisableStacktrace: false
+      Encoding: "console"
+      Level: "info"
 
-postgres:
-  Host: "localhost"
-  Port: 5432
-  User: "your_db_user"
-  Password: "your_db_password"
-  Dbname: "shopit"
-  SSLMode: "disable"
-  PgDriver: "pg"
-  Url: "postgresql://user:password@host:port/dbname"
+    postgres:
+      Host: "localhost"
+      Port: 5432
+      User: "your_db_user"
+      Password: "your_db_password"
+      Dbname: "shopit"
+      SSLMode: "disable"
+      PgDriver: "pg"
+      Url: "postgresql://user:password@host:port/dbname"
 
-cookie:
-  Name: "jwt-token"
-  MaxAge: 86400
-  Secure: false
-  HttpOnly: true
+    cookie:
+      Name: "jwt-token"
+      MaxAge: 86400
+      Secure: false
+      HttpOnly: true
 
-stripe:
-  Secret: "your_stripe_secret_key"
-  Key: "your_stripe_publishable_key"
+    stripe:
+      Secret: "your_stripe_secret_key"
+      Key: "your_stripe_publishable_key"
 
-smtp:
-  Host: "smtp.example.com"
-  Port: 587
-  Username: "your_smtp_username"
-  Password: "your_smtp_password"
+    smtp:
+      Host: "smtp.example.com"
+      Port: 587
+      Username: "your_smtp_username"
+      Password: "your_smtp_password"
 
-cloudinary:
-  Name: "your_cloudinary_cloud_name"
-  Key: "your_cloudinary_api_key"
-  Secret: "your_cloudinary_api_secret"
+    cloudinary:
+      Name: "your_cloudinary_cloud_name"
+      Key: "your_cloudinary_api_key"
+      Secret: "your_cloudinary_api_secret"
     ```
 
 4.  **Run database migrations:**
