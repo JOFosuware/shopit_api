@@ -1,3 +1,4 @@
+// Package repository provides database access for orders.
 package repository
 
 import (
@@ -10,17 +11,18 @@ import (
 	"github.com/jofosuware/go/shopit/internal/models"
 )
 
-// OrdersRepository order's struct
+// OrdersRepository handles order-related persistence operations.
 type OrdersRepository struct {
+	// DB is the database connection.
 	DB *sql.DB
 }
 
-// NewOrdersRepository is the constructor for OrdersRepository
+// NewOrdersRepository returns a new OrdersRepository.
 func NewOrdersRepository(db *sql.DB) *OrdersRepository {
 	return &OrdersRepository{DB: db}
 }
 
-// InsertOrder inserts an order into the database, returns the order and error on failure
+// InsertOrder inserts an order into the database.
 func (o *OrdersRepository) InsertOrder(order models.Order) (*models.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -60,7 +62,7 @@ func (o *OrdersRepository) InsertOrder(order models.Order) (*models.Order, error
 	return &order, nil
 }
 
-// InsertItem inserts order items into the database, returns the order items and error on failure
+// InsertItem inserts an order item into the database.
 func (o *OrdersRepository) InsertItem(item models.Item) (*models.Item, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -95,7 +97,7 @@ func (o *OrdersRepository) InsertItem(item models.Item) (*models.Item, error) {
 	return &item, nil
 }
 
-// InsertPayment inserts an order payment into the database, returns the order payment and error on failure
+// InsertPayment inserts a payment record for an order.
 func (o *OrdersRepository) InsertPayment(p models.Payment) (*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -122,7 +124,7 @@ func (o *OrdersRepository) InsertPayment(p models.Payment) (*models.Payment, err
 	return &p, nil
 }
 
-// InsertShipping inserts an order shipment into the database, returns the order shipment and error on failure
+// InsertShipping inserts shipping information for an order.
 func (o *OrdersRepository) InsertShipping(shipping models.Shipping) (*models.Shipping, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -156,7 +158,7 @@ func (o *OrdersRepository) InsertShipping(shipping models.Shipping) (*models.Shi
 	return &shipping, nil
 }
 
-// FetchOrderById fetches an order by id, returns the order and error on failure
+// FetchOrderById fetches an order by its ID.
 func (o *OrdersRepository) FetchOrderById(id uuid.UUID) (*models.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -183,7 +185,7 @@ func (o *OrdersRepository) FetchOrderById(id uuid.UUID) (*models.Order, error) {
 	return &order, nil
 }
 
-// FetchOrdersById fetches orders by userID, returns the orders and error on failure
+// FetchOrdersById fetches orders for a specific user.
 func (o *OrdersRepository) FetchOrdersById(userID uuid.UUID) ([]*models.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -227,7 +229,7 @@ func (o *OrdersRepository) FetchOrdersById(userID uuid.UUID) ([]*models.Order, e
 	return orders, nil
 }
 
-// FetchItemsById fetches items by orderId, returns the items and an error on failure
+// FetchItemsById fetches items for a given order ID.
 func (o *OrdersRepository) FetchItemsById(orderId uuid.UUID) ([]*models.Item, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -268,7 +270,7 @@ func (o *OrdersRepository) FetchItemsById(orderId uuid.UUID) ([]*models.Item, er
 	return items, nil
 }
 
-// FetchPaymentById fetches payment by orderId, returns the payment and an error on failure
+// FetchPaymentById fetches the payment record for an order.
 func (o *OrdersRepository) FetchPaymentById(orderId uuid.UUID) (*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -291,7 +293,7 @@ func (o *OrdersRepository) FetchPaymentById(orderId uuid.UUID) (*models.Payment,
 	return &payment, nil
 }
 
-// FetchShippingById fetches shipping by orderId, returns the shipping and an error on failure
+// FetchShippingById fetches shipping information for an order.
 func (o *OrdersRepository) FetchShippingById(orderId uuid.UUID) (*models.Shipping, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -318,7 +320,7 @@ func (o *OrdersRepository) FetchShippingById(orderId uuid.UUID) (*models.Shippin
 	return &shipping, nil
 }
 
-// DeleteOrderById deletes order by orderId and returns an error if failed
+// DeleteOrderById deletes an order by its ID.
 func (o *OrdersRepository) DeleteOrderById(orderId uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -332,7 +334,7 @@ func (o *OrdersRepository) DeleteOrderById(orderId uuid.UUID) error {
 	return nil
 }
 
-// FetchAllOrders fetches all orders, returns the orders and error on failure
+// FetchAllOrders returns all orders.
 func (o *OrdersRepository) FetchAllOrders() ([]*models.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -378,7 +380,7 @@ func (o *OrdersRepository) FetchAllOrders() ([]*models.Order, error) {
 	return ords, nil
 }
 
-// FetchAllItems fetches all items, returns items and an error on failure
+// FetchAllItems returns all order items.
 func (o *OrdersRepository) FetchAllItems() ([]*models.Item, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -419,7 +421,7 @@ func (o *OrdersRepository) FetchAllItems() ([]*models.Item, error) {
 	return items, nil
 }
 
-// FetchAllPayment fetches all payment, return payments and an error on failure
+// FetchAllPayment returns all payments.
 func (o *OrdersRepository) FetchAllPayment() ([]*models.Payment, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -455,7 +457,7 @@ func (o *OrdersRepository) FetchAllPayment() ([]*models.Payment, error) {
 	return payments, err
 }
 
-// FetchAllShipping fetches all shipping, return shipping and an error on failure
+// FetchAllShipping returns all shipping records.
 func (o *OrdersRepository) FetchAllShipping() ([]*models.Shipping, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -496,7 +498,7 @@ func (o *OrdersRepository) FetchAllShipping() ([]*models.Shipping, error) {
 	return shipping, nil
 }
 
-// UpdateOrder updates an order in the database, returns an error on failure
+// UpdateOrder updates an order's status and delivered time.
 func (o *OrdersRepository) UpdateOrder(orderId uuid.UUID, ord models.Order) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -511,7 +513,7 @@ func (o *OrdersRepository) UpdateOrder(orderId uuid.UUID, ord models.Order) erro
 	return nil
 }
 
-// UpdateStock updates the product's stock, returns an error on failure
+// UpdateStock decrements a product's stock by the given quantity.
 func (o *OrdersRepository) UpdateStock(productId uuid.UUID, quantity int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

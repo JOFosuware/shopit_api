@@ -1,3 +1,7 @@
+// Package delivery provides HTTP handlers for payment endpoints.
+//
+// It wires handler methods for processing payments and exposing payment-related
+// configuration to callers.
 package delivery
 
 import (
@@ -10,14 +14,14 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/utils"
 )
 
-// PaymentHandler is a payment's handler type
+// PaymentHandler provides HTTP handler methods for payment endpoints.
 type PaymentHandler struct {
 	cfg    *config.Config
 	logger logger.Logger
 	card   card.Carder
 }
 
-// NewPaymentHandler is the constructor for PaymentHandler
+// NewPaymentHandler returns a new PaymentHandler.
 func NewPaymentHandler(cfg *config.Config, logger logger.Logger, card card.Carder) *PaymentHandler {
 	return &PaymentHandler{
 		cfg:    cfg,
@@ -26,7 +30,9 @@ func NewPaymentHandler(cfg *config.Config, logger logger.Logger, card card.Carde
 	}
 }
 
-// ProcessPayment process stripe payments   =>  /api/v1/payment/process
+// ProcessPayment processes a payment and returns a payment intent client secret.
+// Endpoint: POST /api/v1/payment/process
+// Expects JSON body: {"amount": <int>}.
 func (h *PaymentHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	type payment struct {
 		Amount int `json:"amount"`
@@ -59,7 +65,8 @@ func (h *PaymentHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) 
 	_ = utils.WriteJSON(w, http.StatusOK, jsonRes)
 }
 
-// SendStripeApi send stripe API Key   =>   /api/v1/payment/stripeapi
+// SendStripeApi returns the Stripe API key for the frontend to initialize Stripe.
+// Endpoint: GET /api/v1/payment/stripeapi
 func (h *PaymentHandler) SendStripeApi(w http.ResponseWriter, r *http.Request) {
 	jsonRes := struct {
 		StripeApiKey string `json:"stripeApiKey"`

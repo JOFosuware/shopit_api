@@ -1,3 +1,7 @@
+// Package delivery provides HTTP handlers for order endpoints.
+//
+// It wires handler methods for creating, retrieving, updating, and deleting
+// orders, and for listing orders for users and admins.
 package delivery
 
 import (
@@ -15,15 +19,16 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/validator"
 )
 
+// UserContextKey is the request context key used to store the authenticated user.
 const UserContextKey = utils.UserContextKey
 
-// OrderHandlers is the type struct for Order handler
+// OrderHandlers provides HTTP handler methods for order endpoints.
 type OrderHandlers struct {
 	logger   logger.Logger
 	ordersUC orders.OrderUC
 }
 
-// NewOrderHandlers is the constructor for OrderHandlers
+// NewOrderHandlers returns a new OrderHandlers with the provided logger and usecase.
 func NewOrderHandlers(logger logger.Logger, ordersUC orders.OrderUC) *OrderHandlers {
 	return &OrderHandlers{
 		logger:   logger,
@@ -31,7 +36,9 @@ func NewOrderHandlers(logger logger.Logger, ordersUC orders.OrderUC) *OrderHandl
 	}
 }
 
-// CreateOrder creates a new order   =>  /api/v1/orders/new
+// CreateOrder creates a new order.
+// Endpoint: POST /api/v1/orders/new
+// Expects JSON body describing order items, shipping, and payment.
 func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -46,28 +53,28 @@ func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		PaymentInfo:  models.Payment{},
 	}
 
-	 order := struct {
-		OrderItems []*struct{
-			Product string `json:"product"`
-			Name   string `json:"name"`
-			Price  int    `json:"price"`
-			Image string `json:"image"`
-			Stock int    `json:"stock"`
-			Quantity int `json:"quantity"`
+	order := struct {
+		OrderItems []*struct {
+			Product  string `json:"product"`
+			Name     string `json:"name"`
+			Price    int    `json:"price"`
+			Image    string `json:"image"`
+			Stock    int    `json:"stock"`
+			Quantity int    `json:"quantity"`
 		} `json:"orderItems"`
 		ShippingInfo *struct {
-			Address string `json:"address"`
-			City    string `json:"city"`
-			PhoneNo string `json:"phoneNo"`
+			Address    string `json:"address"`
+			City       string `json:"city"`
+			PhoneNo    string `json:"phoneNo"`
 			PostalCode string `json:"postalCode"`
-			Country string `json:"country"`
+			Country    string `json:"country"`
 		} `json:"shippingInfo"`
-		ItemsPrice string `json:"itemsPrice"`
-		ShippingPrice int `json:"shippingPrice"`
-		TaxPrice float64 `json:"taxPrice"`
-		TotalPrice string `json:"totalPrice"`
-		PaymentInfo *struct {
-			ID string `json:"id"`
+		ItemsPrice    string  `json:"itemsPrice"`
+		ShippingPrice int     `json:"shippingPrice"`
+		TaxPrice      float64 `json:"taxPrice"`
+		TotalPrice    string  `json:"totalPrice"`
+		PaymentInfo   *struct {
+			ID     string `json:"id"`
 			Status string `json:"status"`
 		} `json:"paymentInfo"`
 	}{}
@@ -123,7 +130,8 @@ func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, jr)
 }
 
-// GetSingleOrder gets an order by id   =>  /api/v1/orders/:id
+// GetSingleOrder returns an order by its ID.
+// Endpoint: GET /api/v1/orders/{id}
 func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -149,7 +157,8 @@ func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, jr)
 }
 
-// GetUserOrders gets logged-in user orders   =>   /api/v1/orders/me
+// GetUserOrders returns orders for the currently authenticated user.
+// Endpoint: GET /api/v1/orders/me
 func (h *OrderHandlers) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -176,7 +185,8 @@ func (h *OrderHandlers) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, jr)
 }
 
-// GetAllOrders get all orders - ADMIN  =>   /api/v1/orders/admin/orders/
+// GetAllOrders returns all orders (admin).
+// Endpoint: GET /api/v1/orders/admin/orders
 func (h *OrderHandlers) GetAllOrders(w http.ResponseWriter, r *http.Request) {
 	ords, err := h.ordersUC.GetAllOrders()
 	if err != nil {
@@ -204,7 +214,9 @@ func (h *OrderHandlers) GetAllOrders(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, jr)
 }
 
-// UpdateOrder process order - ADMIN  =>   /api/v1/orders/admin/order/:id
+// UpdateOrder updates an order's status (admin).
+// Endpoint: PUT /api/v1/orders/admin/order/{id}
+// Expects form data: status.
 func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -279,7 +291,8 @@ func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 	_ = utils.WriteJSON(w, http.StatusOK, jsonRes)
 }
 
-// DeleteOrder deletes order   =>   /api/v1/orders/admin/order/:id
+// DeleteOrder deletes an order (admin).
+// Endpoint: DELETE /api/v1/orders/admin/order/{id}
 func (h *OrderHandlers) DeleteOrder(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 

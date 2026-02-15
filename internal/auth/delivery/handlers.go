@@ -17,23 +17,17 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/validator"
 )
 
+// UserContextKey is the request context key used to store the authenticated user.
 const UserContextKey = utils.UserContextKey
 
 // AuthHandlers provides HTTP handler methods for authentication endpoints.
 // It depends on a logger and an AuthenticateUC usecase interface for business logic.
 type AuthHandlers struct {
-	logger logger.Logger // Logger for error/info logging
-	authUC auth.AuthenticateUC // Usecase interface for authentication business logic
+	logger logger.Logger
+	authUC auth.AuthenticateUC
 }
 
-// NewAuthHandlers constructs a new AuthHandlers instance.
-//
-// Parameters:
-//   - logger: Logger for logging errors and info
-//   - authUC: AuthenticateUC usecase for authentication business logic
-//
-// Returns:
-//   - *AuthHandlers: a new AuthHandlers instance
+// NewAuthHandlers returns a new AuthHandlers with the provided logger and usecase.
 func NewAuthHandlers(
 	logger logger.Logger,
 	authUC auth.AuthenticateUC,
@@ -44,11 +38,9 @@ func NewAuthHandlers(
 	}
 }
 
-// Register handles user registration requests.
+// Register registers a new user.
 // Endpoint: POST /api/v1/auth/register
-//
-// Expects multipart form data with fields: name, email, password, avatar.
-// Validates input, calls the usecase, and returns a JSON response.
+// Expects multipart form data: name, email, password, avatar.
 func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(100000)
 	if err != nil {
@@ -97,11 +89,9 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// Login handles user login requests.
+// Login authenticates a user and returns a token.
 // Endpoint: POST /api/v1/auth/login
-//
-// Expects JSON body with fields: email, password.
-// Validates input, calls the usecase, and returns a JSON response.
+// Expects JSON body: email, password.
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	var u *models.User
 
@@ -139,11 +129,9 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// SendPasswordResetEmail handles requests to send a password reset email.
+// SendPasswordResetEmail sends a password reset email.
 // Endpoint: POST /api/v1/auth/password/forgot
-//
-// Expects multipart form data with field: email.
-// Validates input, calls the usecase, and returns a JSON response.
+// Expects form data: email.
 func (h *AuthHandlers) SendPasswordResetEmail(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
@@ -179,11 +167,9 @@ func (h *AuthHandlers) SendPasswordResetEmail(w http.ResponseWriter, r *http.Req
 
 }
 
-// ResetPassword handles password reset requests.
-// Endpoint: POST /api/v1/auth/password/reset/:token
-//
-// Expects multipart form data with fields: password, confirmPassword.
-// Validates input, checks password match, calls the usecase, and returns a JSON response.
+// ResetPassword resets a user's password using a reset token.
+// Endpoint: POST /api/v1/auth/password/reset/{token}
+// Expects form data: password, confirmPassword.
 func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	t := chi.URLParam(r, "token")
 
@@ -228,10 +214,8 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetUserProfile returns the currently logged-in user's profile.
+// GetUserProfile returns the profile of the authenticated user.
 // Endpoint: GET /api/v1/auth/me
-//
-// Requires user context to be set (e.g., by authentication middleware).
 func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -260,11 +244,9 @@ func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UpdatePassword updates the password for the currently logged-in user.
+// UpdatePassword updates the authenticated user's password.
 // Endpoint: POST /api/v1/auth/password/update
-//
-// Expects multipart form data with fields: oldPassword, password.
-// Validates input, calls the usecase, and returns a JSON response.
+// Expects form data: oldPassword, password.
 func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -313,11 +295,9 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UpdateProfile updates the profile of the currently logged-in user.
+// UpdateProfile updates the authenticated user's profile and avatar.
 // Endpoint: POST /api/v1/auth/me/update
-//
-// Expects multipart form data with fields: name, email, avatar.
-// Validates input, calls the usecase, and returns a JSON response.
+// Expects form data: name, email, avatar.
 func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -373,11 +353,9 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Logout logs out the user by deleting their token.
+// Logout deletes the provided token and logs out the user.
 // Endpoint: POST /api/v1/auth/logout
-//
 // Expects URL param: token.
-// Calls the usecase to delete the token and returns a JSON response.
 func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	t := chi.URLParam(r, "token")
 
@@ -409,10 +387,8 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetAllUsers returns all users (admin only).
+// GetAllUsers returns all users (admin).
 // Endpoint: GET /api/v1/auth/admin/users
-//
-// Calls the usecase to fetch all users and returns a JSON response.
 func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.authUC.GetAllUsers()
 	if err != nil {
@@ -436,11 +412,9 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetUserDetails returns details for a specific user (admin only).
-// Endpoint: GET /api/v1/auth/admin/user/:id
-//
+// GetUserDetails returns details for a specific user (admin).
+// Endpoint: GET /api/v1/auth/admin/user/{id}
 // Expects URL param: id (UUID).
-// Calls the usecase to fetch user details and returns a JSON response.
 func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -475,11 +449,9 @@ func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// UpdateUser updates a user's profile (admin only).
-// Endpoint: PUT /api/v1/auth/admin/user/:id
-//
-// Expects URL param: id (UUID) and multipart form data with fields: name, email, role.
-// Validates input, calls the usecase, and returns a JSON response.
+// UpdateUser updates a user's profile (admin).
+// Endpoint: PUT /api/v1/auth/admin/user/{id}
+// Expects URL param: id (UUID) and form data: name, email, role.
 func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -539,11 +511,9 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DeleteUser deletes a user (admin only).
-// Endpoint: DELETE /api/v1/auth/admin/user/:id
-//
+// DeleteUser deletes a user (admin).
+// Endpoint: DELETE /api/v1/auth/admin/user/{id}
 // Expects URL param: id (UUID).
-// Calls the usecase to delete the user and returns a JSON response.
 func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {

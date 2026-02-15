@@ -1,3 +1,4 @@
+// Package repository provides persistence for products.
 package repository
 
 import (
@@ -9,19 +10,20 @@ import (
 	"github.com/jofosuware/go/shopit/internal/models"
 )
 
-// ProdRepository is the struct type for Product Repository
+// ProdRepository handles product-related database operations.
 type ProdRepository struct {
+	// DB is the database connection.
 	DB *sql.DB
 }
 
-// NewProdRepository is the constructor for ProdRepository
+// NewProdRepository returns a new ProdRepository.
 func NewProdRepository(db *sql.DB) *ProdRepository {
 	return &ProdRepository{
 		DB: db,
 	}
 }
 
-// InsertProduct insert new product into the product table
+// InsertProduct inserts a new product into the products table.
 func (r *ProdRepository) InsertProduct(p *models.Product) (models.Product, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -66,7 +68,7 @@ func (r *ProdRepository) InsertProduct(p *models.Product) (models.Product, error
 	return prod, nil
 }
 
-// InsertImageUrl inserts product image resource locator into the database
+// InsertImageUrl inserts a product image record into the images table.
 func (r *ProdRepository) InsertImageUrl(img *models.Images) (models.Images, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -96,7 +98,7 @@ func (r *ProdRepository) InsertImageUrl(img *models.Images) (models.Images, erro
 	return image, nil
 }
 
-// FetchProductByName fetches product from the product's table by name
+// FetchProductByName returns products filtered by name (ILIKE) with pagination.
 func (r *ProdRepository) FetchProductByName(keyword string, page int) ([]models.Product, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -165,7 +167,7 @@ func (r *ProdRepository) FetchProductByName(keyword string, page int) ([]models.
 	return p, count, nil
 }
 
-// FetchImageUrlById fetches image url by product id from the database
+// FetchImageUrlById returns image records for a given product ID.
 func (r *ProdRepository) FetchImageUrlById(id uuid.UUID) ([]models.Images, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -202,7 +204,7 @@ func (r *ProdRepository) FetchImageUrlById(id uuid.UUID) ([]models.Images, error
 	return img, nil
 }
 
-// FetchAllProducts fetches all products from the database
+// FetchAllProducts returns all products.
 func (r *ProdRepository) FetchAllProducts() ([]*models.Product, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -245,7 +247,7 @@ func (r *ProdRepository) FetchAllProducts() ([]*models.Product, error) {
 	return products, nil
 }
 
-// FetchProductById fetches product from the product's table by id
+// FetchProductById returns a product by its ID.
 func (r *ProdRepository) FetchProductById(id uuid.UUID) (*models.Product, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -275,7 +277,7 @@ func (r *ProdRepository) FetchProductById(id uuid.UUID) (*models.Product, error)
 	return &prod, nil
 }
 
-// DeleteImageUrlById deletes image url by id from the database
+// DeleteImageUrlById deletes image records for a product ID.
 func (r *ProdRepository) DeleteImageUrlById(id uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -290,7 +292,7 @@ func (r *ProdRepository) DeleteImageUrlById(id uuid.UUID) error {
 	return nil
 }
 
-// DeleteProductById deletes product from product's table by id
+// DeleteProductById deletes a product by its ID.
 func (r *ProdRepository) DeleteProductById(id uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -305,7 +307,7 @@ func (r *ProdRepository) DeleteProductById(id uuid.UUID) error {
 	return nil
 }
 
-// FetchReviews fetches user reviews for a product
+// FetchReviews returns all product reviews.
 func (r *ProdRepository) FetchReviews() ([]models.Reviews, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -344,7 +346,7 @@ func (r *ProdRepository) FetchReviews() ([]models.Reviews, error) {
 	return reviews, nil
 }
 
-// UpdateProduct updates a product in the database by id
+// UpdateProduct updates a product by ID and returns the updated product.
 func (r *ProdRepository) UpdateProduct(productId uuid.UUID, p *models.Product) (models.Product, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -372,7 +374,7 @@ func (r *ProdRepository) UpdateProduct(productId uuid.UUID, p *models.Product) (
 	return *p, nil
 }
 
-// InsertReview inserts a review for a product into the reviews table
+// InsertReview inserts a review for a product.
 func (r *ProdRepository) InsertReview(review *models.Reviews) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -387,7 +389,7 @@ func (r *ProdRepository) InsertReview(review *models.Reviews) error {
 	return nil
 }
 
-// UpdateReview updates reviews with changes by reviewId
+// UpdateReview updates an existing review.
 func (r *ProdRepository) UpdateReview(review *models.Reviews) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -402,7 +404,7 @@ func (r *ProdRepository) UpdateReview(review *models.Reviews) error {
 	return nil
 }
 
-// FetchReviewById fetches a product review by its ID from the database
+// FetchReviewById returns reviews for a given product ID.
 func (r *ProdRepository) FetchReviewById(productId uuid.UUID) ([]models.Reviews, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -441,7 +443,7 @@ func (r *ProdRepository) FetchReviewById(productId uuid.UUID) ([]models.Reviews,
 	return reviews, nil
 }
 
-// DeleteReviewById deletes a product review by its ID
+// DeleteReviewById deletes a review by its ID.
 func (r *ProdRepository) DeleteReviewById(reviewId uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

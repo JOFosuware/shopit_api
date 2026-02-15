@@ -1,3 +1,7 @@
+// Package delivery provides HTTP handlers for product endpoints.
+//
+// It wires handler methods for creating, listing, updating, and deleting
+// products, as well as for product reviews.
 package delivery
 
 import (
@@ -14,15 +18,16 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/validator"
 )
 
+// UserContextKey is the request context key used to store the authenticated user.
 const UserContextKey = utils.UserContextKey
 
-// ProdHandlers is Product handlers type
+// ProdHandlers provides HTTP handler methods for product endpoints.
 type ProdHandlers struct {
 	logger logger.Logger
 	prodUC products.ProductUC
 }
 
-// NewProdHandlers is the constructor for ProdHandlers
+// NewProdHandlers returns a new ProdHandlers with the provided logger and usecase.
 func NewProdHandlers(logger logger.Logger, prodUC products.ProductUC) *ProdHandlers {
 	return &ProdHandlers{
 		logger: logger,
@@ -30,7 +35,9 @@ func NewProdHandlers(logger logger.Logger, prodUC products.ProductUC) *ProdHandl
 	}
 }
 
-// CreateProduct create new product   =>   /api/v1/product/admin/product/new
+// CreateProduct creates a new product (admin).
+// Endpoint: POST /api/v1/product/admin/product/new
+// Expects form data: name, price, description, images, category, seller, stock.
 func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -94,7 +101,9 @@ func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetProducts get all products   =>   /api/v1/product/products?keyword=apple
+// GetProducts returns a list of products.
+// Endpoint: GET /api/v1/product/products
+// Query params: keyword, page.
 func (h *ProdHandlers) GetProducts(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -113,7 +122,8 @@ func (h *ProdHandlers) GetProducts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetAdminProducts get all products (Admin)  =>   /api/v1/product/admin/products
+// GetAdminProducts returns all products (admin).
+// Endpoint: GET /api/v1/product/admin/products
 func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) {
 	prods, err := h.prodUC.GetAdminProducts()
 	if err != nil {
@@ -137,7 +147,8 @@ func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// GetSingleProduct get single product details   =>   /api/v1/product/product/:id
+// GetSingleProduct returns a product by ID.
+// Endpoint: GET /api/v1/product/product/{id}
 func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -173,7 +184,9 @@ func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// UpdateProduct update product   =>   /api/v1/product/admin/product/:id
+// UpdateProduct updates a product (admin).
+// Endpoint: PUT /api/v1/product/admin/product/{id}
+// Expects form data similar to product creation.
 func (h *ProdHandlers) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -253,7 +266,8 @@ func (h *ProdHandlers) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DeleteProduct delete Product   =>   /api/v1/product/admin/product/:id
+// DeleteProduct deletes a product (admin).
+// Endpoint: DELETE /api/v1/product/admin/product/{id}
 func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -292,7 +306,9 @@ func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// CreateProductReview create new review   =>   /api/v1/product/review
+// CreateProductReview creates a new review for a product.
+// Endpoint: POST /api/v1/product/review
+// Expects form data: rating, comment, productId.
 func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
@@ -343,7 +359,9 @@ func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// GetProductReviews get Product Reviews   =>   /api/v1/product/reviews
+// GetProductReviews returns reviews for a product.
+// Endpoint: GET /api/v1/product/reviews
+// Query param: id (product ID).
 func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -381,7 +399,9 @@ func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// DeleteProductReview delete Product Review   =>   /api/v1/product/reviews
+// DeleteProductReview deletes a product review.
+// Endpoint: DELETE /api/v1/product/reviews
+// Query params: productId, id (review ID).
 func (h *ProdHandlers) DeleteProductReview(w http.ResponseWriter, r *http.Request) {
 	productId := r.URL.Query().Get("productId")
 	reviewId := r.URL.Query().Get("id")

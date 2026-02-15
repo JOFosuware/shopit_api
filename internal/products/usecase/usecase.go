@@ -10,13 +10,13 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 )
 
-// ProductsUC is the struct type for Product UseCase
+// ProductsUC provides product-related use cases.
 type ProductsUC struct {
 	cld  cloudinary.CloudUploader
 	repo products.Repo
 }
 
-// NewProductsUC is the constructor for ProductsUC
+// NewProductsUC returns a new ProductsUC.
 func NewProductsUC(cld cloudinary.CloudUploader, repo products.Repo) *ProductsUC {
 	return &ProductsUC{
 		repo: repo,
@@ -24,7 +24,7 @@ func NewProductsUC(cld cloudinary.CloudUploader, repo products.Repo) *ProductsUC
 	}
 }
 
-// CreateProduct creates a new product and uploads its images to cloudinary
+// CreateProduct creates a new product and uploads its images to cloudinary.
 func (p *ProductsUC) CreateProduct(prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
 	prod, err := p.repo.InsertProduct(&prod)
 	if err != nil {
@@ -67,7 +67,7 @@ func (p *ProductsUC) CreateProduct(prod models.Product, img []*multipart.FileHea
 	return &pr, nil
 }
 
-// GetProducts retrieves products based on a keyword and page number
+// GetProducts returns products filtered by keyword with pagination.
 func (p *ProductsUC) GetProducts(keyword string, page int) (*models.GetProd, error) {
 	prods, count, err := p.repo.FetchProductByName(keyword, page)
 	if err != nil {
@@ -93,7 +93,7 @@ func (p *ProductsUC) GetProducts(keyword string, page int) (*models.GetProd, err
 	return &jr, nil
 }
 
-// GetAdminProducts retrieves all products for admin use
+// GetAdminProducts returns all products for admin.
 func (p *ProductsUC) GetAdminProducts() ([]*models.Product, error) {
 	prods, err := p.repo.FetchAllProducts()
 	if err != nil {
@@ -103,7 +103,7 @@ func (p *ProductsUC) GetAdminProducts() ([]*models.Product, error) {
 	return prods, nil
 }
 
-// GetSingleProduct retrieves a single product by its ID
+// GetSingleProduct returns a product by ID, including images and reviews.
 func (p *ProductsUC) GetSingleProduct(id uuid.UUID) (*models.Product, error) {
 	prod, err := p.repo.FetchProductById(id)
 	if err != nil {
@@ -126,7 +126,7 @@ func (p *ProductsUC) GetSingleProduct(id uuid.UUID) (*models.Product, error) {
 	return prod, nil
 }
 
-// UpdateProduct updates a product's details and images by its id
+// UpdateProduct updates a product's details and images by ID.
 func (p *ProductsUC) UpdateProduct(id uuid.UUID, prod models.Product, img []*multipart.File) (*models.ProdResponse, error) {
 	// Fetch existing images
 	images, err := p.repo.FetchImageUrlById(id)
@@ -187,7 +187,7 @@ func (p *ProductsUC) UpdateProduct(id uuid.UUID, prod models.Product, img []*mul
 	return &res, nil
 }
 
-// DeleteProduct deletes product from the product's table by its id
+// DeleteProduct deletes a product and its images by ID.
 func (p *ProductsUC) DeleteProduct(id uuid.UUID) error {
 	// Fetch existing images
 	img, err := p.repo.FetchImageUrlById(id)
@@ -212,7 +212,7 @@ func (p *ProductsUC) DeleteProduct(id uuid.UUID) error {
 	return nil
 }
 
-// CreateProductReview process product's review and save it into the database
+// CreateProductReview creates and persists a product review, updating aggregate ratings.
 func (p *ProductsUC) CreateProductReview(review models.Reviews) error {
 	product, err := p.repo.FetchProductById(review.ProductId)
 	if err != nil {
@@ -247,7 +247,7 @@ func (p *ProductsUC) CreateProductReview(review models.Reviews) error {
 	return nil
 }
 
-// GetProductReviews fetches all reviews for a particular product
+// GetProductReviews returns all reviews for a product.
 func (p *ProductsUC) GetProductReviews(id uuid.UUID) ([]models.Reviews, error) {
 	reviews, err := p.repo.FetchReviewById(id)
 	if err != nil {
@@ -257,7 +257,7 @@ func (p *ProductsUC) GetProductReviews(id uuid.UUID) ([]models.Reviews, error) {
 	return reviews, nil
 }
 
-// DeleteProductReview deletes a particular review for a product by its id
+// DeleteProductReview deletes a review and updates the product's ratings.
 func (p *ProductsUC) DeleteProductReview(productId uuid.UUID, reviewId uuid.UUID) error {
 	err := p.repo.DeleteReviewById(reviewId)
 	if err != nil {

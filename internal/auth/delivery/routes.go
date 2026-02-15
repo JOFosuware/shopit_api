@@ -1,6 +1,8 @@
-// Package delivery sets up HTTP routes for authentication endpoints using chi.Router.
-// It wires up handler methods for registration, login, password management, profile management,
-// and admin user management, applying authentication middleware where appropriate.
+// Package delivery provides HTTP routes for authentication endpoints.
+//
+// It wires handler methods for registration, login, password management,
+// profile management, and admin user management, applying authentication
+// middleware where appropriate.
 package delivery
 
 import (
@@ -11,7 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// AuthRouter sets up and returns the HTTP routes for authentication and user management.
+// AuthRouter returns a chi.Router configured with authentication and
+// user-management routes.
 //
 // Public routes:
 //   - POST   /register                → Register a new user
@@ -28,9 +31,6 @@ import (
 //   - GET    /admin/user/{id}         → Get user details by ID (admin)
 //   - PUT    /admin/user/{id}         → Update user by ID (admin)
 //   - DELETE /admin/user/{id}         → Delete user by ID (admin)
-//
-// Returns:
-//   - http.Handler: a chi.Router with all authentication routes registered
 func (h *AuthHandlers) AuthRouter() http.Handler {
 	mux := chi.NewRouter()
 

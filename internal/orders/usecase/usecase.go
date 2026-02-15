@@ -6,19 +6,19 @@ import (
 	"github.com/jofosuware/go/shopit/internal/orders"
 )
 
-// OrderUC is the type struct of Order UseCase
+// OrderUC provides order-related use cases.
 type OrderUC struct {
 	repo orders.Repo
 }
 
-// NewOrderUC is the constructor for OrderUC
+// NewOrderUC returns a new OrderUC.
 func NewOrderUC(repo orders.Repo) *OrderUC {
 	return &OrderUC{
 		repo: repo,
 	}
 }
 
-// CreateOrder process and save orders, returns orders when successful and error when failed
+// CreateOrder creates an order and persists related records (shipping, items, payment).
 func (o *OrderUC) CreateOrder(ord models.Order) (*models.Order, error) {
 	order, err := o.repo.InsertOrder(ord)
 	if err != nil {
@@ -68,7 +68,7 @@ func (o *OrderUC) CreateOrder(ord models.Order) (*models.Order, error) {
 	return order, nil
 }
 
-// GetSingleOrder returns a single order by orderId, return error when failed
+// GetSingleOrder returns a single order by ID.
 func (o *OrderUC) GetSingleOrder(orderId uuid.UUID) (*models.Order, error) {
 	order, err := o.repo.FetchOrderById(orderId)
 	if err != nil {
@@ -97,7 +97,7 @@ func (o *OrderUC) GetSingleOrder(orderId uuid.UUID) (*models.Order, error) {
 	return order, nil
 }
 
-// GetUserOrders returns all orders for a user, return error when failed
+// GetUserOrders returns all orders for a specific user.
 func (o *OrderUC) GetUserOrders(userId uuid.UUID) ([]*models.Order, error) {
 	ords, err := o.repo.FetchOrdersById(userId)
 	if err != nil {
@@ -133,7 +133,7 @@ func (o *OrderUC) GetUserOrders(userId uuid.UUID) ([]*models.Order, error) {
 	return ords, nil
 }
 
-// GetAllOrders returns all orders and return an error when failed
+// GetAllOrders returns all orders.
 func (o *OrderUC) GetAllOrders() ([]*models.Order, error) {
 	ords, err := o.repo.FetchAllOrders()
 	if err != nil {
@@ -170,7 +170,7 @@ func (o *OrderUC) GetAllOrders() ([]*models.Order, error) {
 	return ords, nil
 }
 
-// UpdateOrder updates an order, returns an error on failure
+// UpdateOrder updates an order.
 func (o *OrderUC) UpdateOrder(order models.Order) error {
 	err := o.repo.UpdateOrder(order.OrderID, order)
 	if err != nil {
@@ -180,17 +180,17 @@ func (o *OrderUC) UpdateOrder(order models.Order) error {
 	return nil
 }
 
-// UpdateStock updates the product's quantity, returns an error on failure
+// UpdateStock updates a product's stock by decrementing the given quantity.
 func (o *OrderUC) UpdateStock(productId uuid.UUID, quantity int) error {
 	err := o.repo.UpdateStock(productId, quantity)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return nil
 }
 
-// DeleteOrder deletes an order, returns an error on failure
+// DeleteOrder deletes an order by ID.
 func (o *OrderUC) DeleteOrder(orderId uuid.UUID) error {
 	err := o.repo.DeleteOrderById(orderId)
 	if err != nil {

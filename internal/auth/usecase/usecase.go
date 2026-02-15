@@ -1,6 +1,8 @@
-// Package usecase provides the business logic layer for authentication and user management.
+// Package usecase provides authentication and user-management business logic.
 //
-// It implements methods for user, avatar, and token management, registration, login, password reset, profile updates, and user CRUD operations. The use case layer coordinates between repositories, token generation, password hashing, mail sending, and cloud storage to provide a complete authentication workflow for the application.
+// It coordinates repositories, token generation, password hashing, mail sending, and
+// cloud storage to implement registration, login, password reset, profile updates,
+// and user CRUD operations.
 package usecase
 
 import (
@@ -22,24 +24,14 @@ import (
 // AuthUC provides authentication and user management use cases.
 // It should be constructed with all required dependencies.
 type AuthUC struct {
-	cld    cloudinary.CloudUploader // Cloud storage uploader
-	repo   auth.Repo                // Data repository
-	token  token.Tokener            // Token generator
-	bcrypt bcrypt.Encryptor         // Password hasher
-	mail   mailer.Mailer            // Mail sender
+	cld    cloudinary.CloudUploader
+	repo   auth.Repo
+	token  token.Tokener
+	bcrypt bcrypt.Encryptor
+	mail   mailer.Mailer
 }
 
-// NewAuthUC constructs a new AuthUC.
-//
-// Parameters:
-//   - cld: a cloud storage uploader
-//   - repo: a data repository
-//   - token: a token generator
-//   - b: a password hasher
-//   - mail: a mail sender
-//
-// Returns:
-//   - *AuthUC: a new AuthUC instance
+// NewAuthUC returns a new AuthUC with the provided dependencies.
 func NewAuthUC(
 	cld cloudinary.CloudUploader,
 	repo auth.Repo,
@@ -57,7 +49,6 @@ func NewAuthUC(
 }
 
 // Register creates a new user, uploads avatar, and returns a user response with token.
-// Returns the created user response or an error.
 func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse, error) {
 	u, err := a.repo.FetchUserByEmail(user.Email)
 	if err != nil && err.Error() != "sql: no rows in result set" {
@@ -118,7 +109,6 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 }
 
 // Login authenticates a user and returns a user response with token.
-// Returns the user response or an error.
 func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 	u, err := a.repo.FetchUserByEmail(email)
 	if err != nil {
@@ -154,7 +144,7 @@ func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 	return ur, nil
 }
 
-// SendPasswordResetEmail process password and email reset
+// SendPasswordResetEmail sends a password reset email to the given address.
 func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.Response, error) {
 	var protocol string
 	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
@@ -207,7 +197,7 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 	return &resp, nil
 }
 
-// ResetPassword reset password
+// ResetPassword resets a user's password using the provided token.
 func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse, error) {
 	// validate token
 	if newToken == "" {
@@ -255,7 +245,6 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 }
 
 // UpdatePassword updates the password of a user.
-// Returns a user response or an error.
 func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error) {
 	var res *models.UserResponse
 
@@ -306,7 +295,6 @@ func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*
 }
 
 // UpdateProfile updates the profile and avatar of a user.
-// Returns an error if the update fails.
 func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 	if avatar != "" {
 		at, err := a.repo.FetchAvatarById(user.ID)
@@ -347,7 +335,7 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 	return nil
 }
 
-// GetAllUsers returns all users
+// GetAllUsers returns all users.
 func (a *AuthUC) GetAllUsers() ([]*models.User, error) {
 	users, err := a.repo.FetchAllUsers()
 	if err != nil {
@@ -358,7 +346,6 @@ func (a *AuthUC) GetAllUsers() ([]*models.User, error) {
 }
 
 // GetUserDetails returns the details of a user by ID.
-// Returns the user or an error.
 func (a *AuthUC) GetUserDetails(userID uuid.UUID) (*models.User, error) {
 	user, err := a.repo.FetchUserById(userID)
 	if err != nil {
@@ -375,7 +362,6 @@ func (a *AuthUC) GetUserDetails(userID uuid.UUID) (*models.User, error) {
 }
 
 // UpdateUser updates the details of a user by ID.
-// Returns a user response or an error.
 func (a *AuthUC) UpdateUser(userID uuid.UUID, user models.User) (*models.UserResponse, error) {
 	// get user
 	u, err := a.repo.FetchUserById(userID)

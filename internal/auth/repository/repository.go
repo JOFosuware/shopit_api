@@ -15,16 +15,11 @@ import (
 // AuthRepository provides methods for interacting with the authentication-related tables in the database.
 // It should be constructed with a *sql.DB connection.
 type AuthRepository struct {
-	DB *sql.DB // Database connection
+	// DB is the database connection.
+	DB *sql.DB
 }
 
-// NewAuthRepository constructs a new AuthRepository.
-//
-// Parameters:
-//   - db: a pointer to a sql.DB database connection
-//
-// Returns:
-//   - *AuthRepository: a new AuthRepository instance
+// NewAuthRepository returns a new AuthRepository for the provided database.
 func NewAuthRepository(db *sql.DB) *AuthRepository {
 	return &AuthRepository{
 		DB: db,
@@ -32,7 +27,6 @@ func NewAuthRepository(db *sql.DB) *AuthRepository {
 }
 
 // InsertUser inserts a new user into the users table.
-// Returns the created user or an error.
 func (r *AuthRepository) InsertUser(u models.User) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -64,7 +58,6 @@ func (r *AuthRepository) InsertUser(u models.User) (*models.User, error) {
 }
 
 // UpdateUser updates an existing user in the users table.
-// Returns an error if the update fails.
 func (r *AuthRepository) UpdateUser(u models.User) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -87,7 +80,6 @@ func (r *AuthRepository) UpdateUser(u models.User) error {
 }
 
 // InsertAvatar inserts a new avatar record for a user.
-// Returns the created avatar or an error.
 func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -119,7 +111,6 @@ func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 }
 
 // FetchAvatarById fetches an avatar by user ID.
-// Returns the avatar or an error.
 func (r *AuthRepository) FetchAvatarById(userId uuid.UUID) (models.Avatar, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -143,7 +134,6 @@ func (r *AuthRepository) FetchAvatarById(userId uuid.UUID) (models.Avatar, error
 }
 
 // DeleteUsers deletes all users from the database.
-// Returns an error if the operation fails.
 func (r *AuthRepository) DeleteUsers() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -158,7 +148,6 @@ func (r *AuthRepository) DeleteUsers() error {
 }
 
 // DeleteAvatar deletes all avatars from the database.
-// Returns an error if the operation fails.
 func (r *AuthRepository) DeleteAvatar() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -173,7 +162,6 @@ func (r *AuthRepository) DeleteAvatar() error {
 }
 
 // FetchUserByEmail fetches a user by email.
-// Returns the user or an error.
 func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -203,7 +191,6 @@ func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
 }
 
 // InsertToken inserts a token for a user, deleting any existing tokens for that user.
-// Returns an error if the operation fails.
 func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -234,7 +221,6 @@ func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 }
 
 // FetchTokenById fetches a token by user ID.
-// Returns the token or an error.
 func (r *AuthRepository) FetchTokenById(id uuid.UUID) (*models.Token, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -260,7 +246,6 @@ func (r *AuthRepository) FetchTokenById(id uuid.UUID) (*models.Token, error) {
 }
 
 // FetchUserByToken fetches a user by token string.
-// Returns the user or an error.
 func (r *AuthRepository) FetchUserByToken(token string) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -294,7 +279,6 @@ func (r *AuthRepository) FetchUserByToken(token string) (*models.User, error) {
 }
 
 // FetchUserById fetches a user by user ID.
-// Returns the user or an error.
 func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -320,7 +304,6 @@ func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
 }
 
 // DeleteAvatarById deletes an avatar by its public ID.
-// Returns an error if the operation fails.
 func (r *AuthRepository) DeleteAvatarById(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -336,7 +319,6 @@ func (r *AuthRepository) DeleteAvatarById(id string) error {
 }
 
 // FetchAllUsers returns all users in the database.
-// Returns a slice of users or an error.
 func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -371,7 +353,6 @@ func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 }
 
 // DeleteUserById deletes a user by user ID.
-// Returns an error if the operation fails.
 func (r *AuthRepository) DeleteUserById(id uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -387,7 +368,6 @@ func (r *AuthRepository) DeleteUserById(id uuid.UUID) error {
 }
 
 // DeleteTokenById deletes a token by user ID.
-// Returns an error if the operation fails.
 func (r *AuthRepository) DeleteTokenById(userId uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
