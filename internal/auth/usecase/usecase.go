@@ -336,7 +336,11 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 }
 
 // GetAllUsers returns all users.
-func (a *AuthUC) GetAllUsers() ([]*models.User, error) {
+func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
+	if actor == nil || actor.Role != "admin" {
+		return nil, errors.New("forbidden: admin only")
+	}
+
 	users, err := a.repo.FetchAllUsers()
 	if err != nil {
 		return nil, err
@@ -346,7 +350,15 @@ func (a *AuthUC) GetAllUsers() ([]*models.User, error) {
 }
 
 // GetUserDetails returns the details of a user by ID.
-func (a *AuthUC) GetUserDetails(userID uuid.UUID) (*models.User, error) {
+func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.User, error) {
+	// allow users to fetch their own details or admin to fetch any
+	if actor == nil {
+		return nil, errors.New("unauthenticated")
+	}
+	if actor.Role != "admin" && actor.ID != userID {
+		return nil, errors.New("forbidden: admin only")
+	}
+
 	user, err := a.repo.FetchUserById(userID)
 	if err != nil {
 		return nil, err
@@ -362,7 +374,11 @@ func (a *AuthUC) GetUserDetails(userID uuid.UUID) (*models.User, error) {
 }
 
 // UpdateUser updates the details of a user by ID.
-func (a *AuthUC) UpdateUser(userID uuid.UUID, user models.User) (*models.UserResponse, error) {
+func (a *AuthUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error) {
+	if actor == nil || actor.Role != "admin" {
+		return nil, errors.New("forbidden: admin only")
+	}
+
 	// get user
 	u, err := a.repo.FetchUserById(userID)
 	if err != nil {
@@ -385,7 +401,11 @@ func (a *AuthUC) UpdateUser(userID uuid.UUID, user models.User) (*models.UserRes
 }
 
 // DeleteUser deletes a user
-func (a *AuthUC) DeleteUser(userID uuid.UUID) error {
+func (a *AuthUC) DeleteUser(actor *models.User, userID uuid.UUID) error {
+	if actor == nil || actor.Role != "admin" {
+		return errors.New("forbidden: admin only")
+	}
+
 	avatar, err := a.repo.FetchAvatarById(userID)
 	if err != nil {
 		return err

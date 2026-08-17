@@ -351,14 +351,14 @@ func TestGetAllUsers(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		repo.On("FetchAllUsers").Return([]*models.User{}, nil).Once()
-		users, err := a.GetAllUsers()
+		users, err := a.GetAllUsers(&models.User{Role: "admin"})
 		assert.NoError(t, err)
 		assert.NotNil(t, users)
 	})
 
 	t.Run("Failed to fetch users", func(t *testing.T) {
 		repo.On("FetchAllUsers").Return(nil, errors.New("fetch error")).Once()
-		users, err := a.GetAllUsers()
+		users, err := a.GetAllUsers(&models.User{Role: "admin"})
 		assert.Error(t, err)
 		assert.Nil(t, users)
 	})
@@ -372,7 +372,7 @@ func TestGetUserDetails(t *testing.T) {
 		id := uuid.New()
 		repo.On("FetchUserById", id).Return(&models.User{}, nil)
 		repo.On("FetchAvatarById", id).Return(models.Avatar{}, nil)
-		user, err := a.GetUserDetails(id)
+		user, err := a.GetUserDetails(&models.User{Role: "admin"}, id)
 		assert.NoError(t, err)
 		assert.NotNil(t, user)
 	})
@@ -380,7 +380,7 @@ func TestGetUserDetails(t *testing.T) {
 	t.Run("Failed - User not found", func(t *testing.T) {
 		id := uuid.New()
 		repo.On("FetchUserById", id).Return(nil, errors.New("user not found"))
-		user, err := a.GetUserDetails(id)
+		user, err := a.GetUserDetails(&models.User{Role: "admin"}, id)
 		assert.Error(t, err)
 		assert.Nil(t, user)
 	})
@@ -389,7 +389,7 @@ func TestGetUserDetails(t *testing.T) {
 		id := uuid.New()
 		repo.On("FetchUserById", id).Return(&models.User{}, nil)
 		repo.On("FetchAvatarById", id).Return(models.Avatar{}, errors.New("avatar not found"))
-		user, err := a.GetUserDetails(id)
+		user, err := a.GetUserDetails(&models.User{Role: "admin"}, id)
 		assert.Error(t, err)
 		assert.Nil(t, user)
 	})
@@ -409,7 +409,7 @@ func TestUpdateUser(t *testing.T) {
 		}
 		repo.On("FetchUserById", id).Return(&u, nil)
 		repo.On("UpdateUser", u).Return(nil)
-		res, err := a.UpdateUser(id, u)
+		res, err := a.UpdateUser(&models.User{Role: "admin"}, id, u)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 	})
@@ -423,7 +423,7 @@ func TestUpdateUser(t *testing.T) {
 			Name:     "John Doe",
 		}
 		repo.On("FetchUserById", id).Return(nil, errors.New("user not found"))
-		res, err := a.UpdateUser(id, u)
+		res, err := a.UpdateUser(&models.User{Role: "admin"}, id, u)
 		assert.Error(t, err)
 		assert.Nil(t, res)
 	})
@@ -438,7 +438,7 @@ func TestUpdateUser(t *testing.T) {
 		}
 		repo.On("FetchUserById", id).Return(&u, nil)
 		repo.On("UpdateUser", u).Return(errors.New("update error"))
-		res, err := a.UpdateUser(id, u)
+		res, err := a.UpdateUser(&models.User{Role: "admin"}, id, u)
 		assert.Error(t, err)
 		assert.Nil(t, res)
 	})
@@ -460,13 +460,13 @@ func TestDeleteUser(t *testing.T) {
 		cld.On("Destroy", avatar.PublicId).Return(&uploader.DestroyResult{}, nil).Once()
 		repo.On("DeleteAvatarById", avatar.PublicId).Return(nil).Once()
 		repo.On("DeleteUserById", id).Return(nil).Once()
-		err := a.DeleteUser(id)
+		err := a.DeleteUser(&models.User{Role: "admin"}, id)
 		assert.NoError(t, err)
 	})
 
 	t.Run("Failed Delete - User not found", func(t *testing.T) {
 		repo.On("FetchAvatarById", id).Return(models.Avatar{}, errors.New("user not found")).Once()
-		err := a.DeleteUser(id)
+		err := a.DeleteUser(&models.User{Role: "admin"}, id)
 		assert.Error(t, err)
 	})
 
@@ -479,7 +479,7 @@ func TestDeleteUser(t *testing.T) {
 		repo.On("FetchAvatarById", id).Return(avatar, nil).Once()
 		cld.On("Destroy", avatar.PublicId).Return(&uploader.DestroyResult{}, nil).Once()
 		repo.On("DeleteAvatarById", avatar.PublicId).Return(errors.New("delete avatar error")).Once()
-		err := a.DeleteUser(id)
+		err := a.DeleteUser(&models.User{Role: "admin"}, id)
 		assert.Error(t, err)
 	})
 
@@ -488,7 +488,7 @@ func TestDeleteUser(t *testing.T) {
 		cld.On("Destroy", avatar.PublicId).Return(&uploader.DestroyResult{}, nil).Once()
 		repo.On("DeleteAvatarById", avatar.PublicId).Return(nil).Once()
 		repo.On("DeleteUserById", id).Return(errors.New("delete error")).Once()
-		err := a.DeleteUser(id)
+		err := a.DeleteUser(&models.User{Role: "admin"}, id)
 		assert.Error(t, err)
 	})
 }

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/jofosuware/go/shopit/internal/auth/repository"
+	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/nfnt/resize"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -71,7 +72,7 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, data interface{}) error {
 // BadRequest sends a JSON response with status http.StatusBadRequest, describing the error
 func BadRequest(w http.ResponseWriter, r *http.Request, err error) error {
 	var payload struct {
-		Success   bool   `json:"success"`
+		Success bool   `json:"success"`
 		Message string `json:"message"`
 	}
 
@@ -91,7 +92,7 @@ func BadRequest(w http.ResponseWriter, r *http.Request, err error) error {
 
 func InvalidCredentials(w http.ResponseWriter) error {
 	var payload struct {
-		Success   bool   `json:"success"`
+		Success bool   `json:"success"`
 		Message string `json:"message"`
 	}
 
@@ -107,7 +108,7 @@ func InvalidCredentials(w http.ResponseWriter) error {
 
 func TooManyRequests(w http.ResponseWriter) error {
 	var payload struct {
-		Success   bool   `json:"success"`
+		Success bool   `json:"success"`
 		Message string `json:"message"`
 	}
 
@@ -137,7 +138,7 @@ func PasswordMatches(hash, password string) (bool, error) {
 
 func FailedValidation(w http.ResponseWriter, r *http.Request, errors map[string]string) {
 	var payload struct {
-		Success   bool              `json:"success"`
+		Success bool              `json:"success"`
 		Message string            `json:"message"`
 		Errors  map[string]string `json:"errors"`
 	}
@@ -202,6 +203,30 @@ func IsAuthenticated(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), UserContextKey, user)
 		r = r.WithContext(ctx)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// AdminOnly ensures the authenticated user has an admin role.
+func AdminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, ok := r.Context().Value(UserContextKey).(*models.User)
+		if !ok || u == nil {
+			_ = InvalidCredentials(w)
+			return
+		}
+
+		if u.Role != "admin" {
+			var payload struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			payload.Success = false
+			payload.Message = "forbidden: admin only"
+			_ = WriteJSON(w, http.StatusForbidden, payload)
+			return
+		}
 
 		next.ServeHTTP(w, r)
 	})

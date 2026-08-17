@@ -7,7 +7,7 @@ require (
 	github.com/bwmarrin/go-alone v0.0.0-20190806015146-742bb55d1631
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.12.0
 	github.com/stripe/stripe-go/v72 v72.122.0
 	github.com/xhit/go-simple-mail/v2 v2.16.0
 	golang.org/x/time v0.3.0
@@ -31,7 +31,7 @@ require (
 	github.com/spf13/afero v1.10.0 // indirect
 	github.com/spf13/cast v1.5.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/objx v0.5.0 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/toorop/go-dkim v0.0.0-20201103131630-e1cd1a0a5208 // indirect
 	go.uber.org/multierr v1.10.0 // indirect

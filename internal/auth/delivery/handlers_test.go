@@ -75,12 +75,12 @@ func TestRegister(t *testing.T) {
 			wantCode:   http.StatusUnprocessableEntity,
 		},
 		{
-			name: "ParseMultipartForm error",
-			formData: url.Values{},
-			avatar: "someImage.jpg",
+			name:       "ParseMultipartForm error",
+			formData:   url.Values{},
+			avatar:     "someImage.jpg",
 			mockReturn: nil,
-			mockError: nil,
-			wantCode: http.StatusBadRequest,
+			mockError:  nil,
+			wantCode:   http.StatusBadRequest,
 		},
 		{
 			name: "authUC.Register error",
@@ -160,44 +160,44 @@ func TestLogin(t *testing.T) {
 		wantCode  int
 	}{
 		{
-			name:     "Successful login",
-			jsonData: []byte(`{"email": "user@gmail.com", "password": "Science@1992"}`),
-			mockUser: models.User{Email: "user@gmail.com", Password: "Science@1992"},
-			mockResp: &models.UserResponse{},
+			name:      "Successful login",
+			jsonData:  []byte(`{"email": "user@gmail.com", "password": "Science@1992"}`),
+			mockUser:  models.User{Email: "user@gmail.com", Password: "Science@1992"},
+			mockResp:  &models.UserResponse{},
 			mockError: nil,
-			wantCode: http.StatusOK,
+			wantCode:  http.StatusOK,
 		},
 		{
-			name:     "Invalid credentials",
-			jsonData: []byte(`{"email": "user@gmail.com", "password": "wrongpass"}`),
-			mockUser: models.User{Email: "user@gmail.com", Password: "wrongpass"},
-			mockResp: nil,
+			name:      "Invalid credentials",
+			jsonData:  []byte(`{"email": "user@gmail.com", "password": "wrongpass"}`),
+			mockUser:  models.User{Email: "user@gmail.com", Password: "wrongpass"},
+			mockResp:  nil,
 			mockError: assert.AnError,
-			wantCode: http.StatusBadRequest,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name: "Malformed JSON",
-			jsonData: []byte(`{"email": "user@gmail.com", "password": "Science@1992"`), // missing closing brace
-			mockUser: models.User{},
-			mockResp: nil,
+			name:      "Malformed JSON",
+			jsonData:  []byte(`{"email": "user@gmail.com", "password": "Science@1992"`), // missing closing brace
+			mockUser:  models.User{},
+			mockResp:  nil,
 			mockError: nil,
-			wantCode: http.StatusBadRequest,
+			wantCode:  http.StatusBadRequest,
 		},
 		{
-			name: "Validation error - missing email",
-			jsonData: []byte(`{"email": "", "password": "Science@1992"}`),
-			mockUser: models.User{Email: "", Password: "Science@1992"},
-			mockResp: nil,
+			name:      "Validation error - missing email",
+			jsonData:  []byte(`{"email": "", "password": "Science@1992"}`),
+			mockUser:  models.User{Email: "", Password: "Science@1992"},
+			mockResp:  nil,
 			mockError: nil,
-			wantCode: http.StatusUnprocessableEntity,
+			wantCode:  http.StatusUnprocessableEntity,
 		},
 		{
-			name: "Validation error - short password",
-			jsonData: []byte(`{"email": "user@gmail.com", "password": "short"}`),
-			mockUser: models.User{Email: "user@gmail.com", Password: "short"},
-			mockResp: nil,
+			name:      "Validation error - short password",
+			jsonData:  []byte(`{"email": "user@gmail.com", "password": "short"}`),
+			mockUser:  models.User{Email: "user@gmail.com", Password: "short"},
+			mockResp:  nil,
 			mockError: nil,
-			wantCode: http.StatusUnprocessableEntity,
+			wantCode:  http.StatusUnprocessableEntity,
 		},
 	}
 
@@ -413,7 +413,7 @@ func TestGetUserProfile(t *testing.T) {
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
-		authUC.On("GetUserDetails", u.ID).Return(&u, nil).Once()
+		authUC.On("GetUserDetails", &u, u.ID).Return(&u, nil).Once()
 		h.GetUserProfile(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 		authUC.AssertExpectations(t)
@@ -440,7 +440,7 @@ func TestGetUserProfile(t *testing.T) {
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
-		authUC.On("GetUserDetails", u.ID).Return(nil, assert.AnError).Once()
+		authUC.On("GetUserDetails", &u, u.ID).Return(nil, assert.AnError).Once()
 		logger.On("Errorf", mock.Anything, mock.Anything).Once()
 		h.GetUserProfile(rr, req)
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
@@ -581,8 +581,8 @@ func TestUpdateProfile(t *testing.T) {
 		rr := httptest.NewRecorder()
 
 		u := models.User{
-			Name:     "John Doe",
-			Email:    "john.doe@example.com",
+			Name:  "John Doe",
+			Email: "john.doe@example.com",
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
@@ -620,8 +620,8 @@ func TestUpdateProfile(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 
 		u := models.User{
-			Name:     "John Doe",
-			Email:    "john.doe@example.com",
+			Name:  "John Doe",
+			Email: "john.doe@example.com",
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
@@ -648,8 +648,8 @@ func TestUpdateProfile(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 
 		u := models.User{
-			Name:     "John Doe",
-			Email:    "john.doe@example.com",
+			Name:  "John Doe",
+			Email: "john.doe@example.com",
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
@@ -678,8 +678,8 @@ func TestUpdateProfile(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 
 		u := models.User{
-			Name:     "John Doe",
-			Email:    "invalid-email",
+			Name:  "John Doe",
+			Email: "invalid-email",
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
@@ -708,8 +708,8 @@ func TestUpdateProfile(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 
 		u := models.User{
-			Name:     "John Doe",
-			Email:    "john.doe@example.com",
+			Name:  "John Doe",
+			Email: "john.doe@example.com",
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)

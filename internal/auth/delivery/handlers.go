@@ -217,7 +217,7 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 // GetUserProfile returns the profile of the authenticated user.
 // Endpoint: GET /api/v1/auth/me
 func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok {
 		_ = utils.BadRequest(w, r, errors.New(""))
 		h.logger.Error("unable to retrieve user from session")
@@ -225,7 +225,7 @@ func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user details
-	user, err := h.authUC.GetUserDetails(user.ID)
+	user, err := h.authUC.GetUserDetails(actor, actor.ID)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("error getting user details: %v", err)
@@ -390,7 +390,14 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 // GetAllUsers returns all users (admin).
 // Endpoint: GET /api/v1/auth/admin/users
 func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.authUC.GetAllUsers()
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		_ = utils.BadRequest(w, r, errors.New(""))
+		h.logger.Error("unable to retrieve user from session")
+		return
+	}
+
+	users, err := h.authUC.GetAllUsers(actor)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("error getting all users: %v", err)
@@ -430,7 +437,14 @@ func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.authUC.GetUserDetails(userID)
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		_ = utils.BadRequest(w, r, errors.New(""))
+		h.logger.Error("unable to retrieve user from session")
+		return
+	}
+
+	user, err := h.authUC.GetUserDetails(actor, userID)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("error getting user details: %v", err)
@@ -497,7 +511,14 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role:  role,
 	}
 
-	res, err := h.authUC.UpdateUser(userID, user)
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		_ = utils.BadRequest(w, r, errors.New(""))
+		h.logger.Error("unable to retrieve user from session")
+		return
+	}
+
+	res, err := h.authUC.UpdateUser(actor, userID, user)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("error updating user: %v", err)
@@ -529,7 +550,14 @@ func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.authUC.DeleteUser(userID)
+	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok {
+		_ = utils.BadRequest(w, r, errors.New(""))
+		h.logger.Error("unable to retrieve user from session")
+		return
+	}
+
+	err = h.authUC.DeleteUser(actor, userID)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("error deleting user: %v", err)

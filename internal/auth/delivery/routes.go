@@ -47,10 +47,15 @@ func (h *AuthHandlers) AuthRouter() http.Handler {
 		r.Get("/me", h.GetUserProfile)
 		r.Put("/password/update", h.UpdatePassword)
 		r.Put("/me/update", h.UpdateProfile)
-		r.Get("/admin/users", h.GetAllUsers)
-		r.Get("/admin/user/{id}", h.GetUserDetails)
-		r.Put("/admin/user/{id}", h.UpdateUser)
-		r.Delete("/admin/user/{id}", h.DeleteUser)
+
+		// Admin-only routes
+		r.Group(func(r chi.Router) {
+			r.Use(utils.AdminOnly)
+			r.Get("/admin/users", h.GetAllUsers)
+			r.Get("/admin/user/{id}", h.GetUserDetails)
+			r.Put("/admin/user/{id}", h.UpdateUser)
+			r.Delete("/admin/user/{id}", h.DeleteUser)
+		})
 	})
 
 	return mux
