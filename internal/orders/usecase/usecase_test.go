@@ -34,14 +34,14 @@ func TestCreateOrder(t *testing.T) {
 			ItemPrice:     0,
 			TaxPrice:      0,
 			ShippingPrice: 0,
-			TotalPrice:   0,
-			UserID: 	  uuid.New(),
-			PaidAt: 	time.Now(),
+			TotalPrice:    0,
+			UserID:        uuid.New(),
+			PaidAt:        time.Now(),
 			OrderStatus:   "Processing",
 			DeliveredAt:   time.Time{},
 		}
 
-		 // Use matchers to allow the ShippingInfo to have an updated OrderID.
+		// Use matchers to allow the ShippingInfo to have an updated OrderID.
 		repo.On("InsertOrder", *order).Return(order, nil)
 		repo.
 			On("InsertShipping", mock.MatchedBy(func(s models.Shipping) bool {

@@ -115,7 +115,7 @@ func TestAuthUC_SendPasswordResetEmail(t *testing.T) {
 		require.NoError(t, err)
 		repo.On("FetchUserByEmail", u.Email).Return(&u, nil).Once()
 		tok := &models.Token{PlainText: "tok"}
-		mToken.On("GenerateToken", u.ID, 60*time.Minute, token.ScopeAuthentication).Return(tok, nil).Once()
+		mToken.On("GenerateToken", u.ID, 60*time.Minute, token.ScopePasswordReset).Return(tok, nil).Once()
 		mail.On("SendMail", mock.Anything, u.Email, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		repo.On("InsertToken", tok, u.ID).Return(nil).Once()
 		res, err := a.SendPasswordResetEmail(u.Email, req)
@@ -128,7 +128,7 @@ func TestAuthUC_SendPasswordResetEmail(t *testing.T) {
 		require.NoError(t, err)
 		repo.On("FetchUserByEmail", u.Email).Return(&u, nil).Once()
 		tok := &models.Token{PlainText: "tok"}
-		mToken.On("GenerateToken", u.ID, 60*time.Minute, token.ScopeAuthentication).Return(tok, nil).Once()
+		mToken.On("GenerateToken", u.ID, 60*time.Minute, token.ScopePasswordReset).Return(tok, nil).Once()
 		mail.On("SendMail", mock.Anything, u.Email, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("mail error")).Once()
 		res, err := a.SendPasswordResetEmail(u.Email, req)
 		assert.Error(t, err)
@@ -147,7 +147,7 @@ func TestAuthUC_ResetPassword(t *testing.T) {
 	}
 
 	t.Run("Success", func(t *testing.T) {
-		repo.On("FetchUserByToken", "token").Return(&u, nil).Once()
+		repo.On("FetchUserByTokenWithScope", "token", token.ScopePasswordReset).Return(&u, nil).Once()
 		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte("verySecret"), nil).Once()
 		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{}, nil).Once()
 		repo.On("InsertToken", &models.Token{}, u.ID).Return(nil).Once()
@@ -158,14 +158,14 @@ func TestAuthUC_ResetPassword(t *testing.T) {
 	})
 
 	t.Run("Failed Reset - User not found", func(t *testing.T) {
-		repo.On("FetchUserByToken", "invalid_token").Return(nil, errors.New("user not found")).Once()
+		repo.On("FetchUserByTokenWithScope", "invalid_token", token.ScopePasswordReset).Return(nil, errors.New("user not found")).Once()
 		res, err := a.ResetPassword("invalid_token", "newPassword")
 		assert.Error(t, err)
 		assert.Nil(t, res)
 	})
 
 	t.Run("Failed Reset - Error updating user", func(t *testing.T) {
-		repo.On("FetchUserByToken", "token").Return(&u, nil).Once()
+		repo.On("FetchUserByTokenWithScope", "token", token.ScopePasswordReset).Return(&u, nil).Once()
 		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte("verySecret"), nil).Once()
 		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{}, nil).Once()
 		repo.On("InsertToken", &models.Token{}, u.ID).Return(nil).Once()
@@ -499,7 +499,7 @@ func TestLogout(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		tok := "MQUYLLXB2PHU5PE6PG3HGG2AXI"
 		id := uuid.New()
-		repo.On("FetchUserByToken", tok).Return(&models.User{ID: id}, nil).Once()
+		repo.On("FetchUserByTokenWithScope", tok, token.ScopeAuthentication).Return(&models.User{ID: id}, nil).Once()
 		repo.On("DeleteTokenById", id).Return(nil).Once()
 		err := a.DeleteUserToken(tok)
 		assert.NoError(t, err)
@@ -507,7 +507,7 @@ func TestLogout(t *testing.T) {
 
 	t.Run("Failed Logout - Token not found", func(t *testing.T) {
 		tok := "INVALIDTOKEN"
-		repo.On("FetchUserByToken", tok).Return(nil, errors.New("token not found")).Once()
+		repo.On("FetchUserByTokenWithScope", tok, token.ScopeAuthentication).Return(nil, errors.New("token not found")).Once()
 		err := a.DeleteUserToken(tok)
 		assert.Error(t, err)
 	})
@@ -515,7 +515,7 @@ func TestLogout(t *testing.T) {
 	t.Run("Failed Logout - Error deleting token", func(t *testing.T) {
 		tok := "MQUYLLXB2PHU5PE6PG3HGG2AXI"
 		id := uuid.New()
-		repo.On("FetchUserByToken", tok).Return(&models.User{ID: id}, nil).Once()
+		repo.On("FetchUserByTokenWithScope", tok, token.ScopeAuthentication).Return(&models.User{ID: id}, nil).Once()
 		repo.On("DeleteTokenById", id).Return(errors.New("delete error")).Once()
 		err := a.DeleteUserToken(tok)
 		assert.Error(t, err)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/jofosuware/go/shopit/internal/auth/repository"
 	"github.com/jofosuware/go/shopit/internal/models"
+	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 	"github.com/nfnt/resize"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -194,7 +195,7 @@ func IsAuthenticated(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := Repo.FetchUserByToken(token)
+		user, err := Repo.FetchUserByTokenWithScope(token, pkgtoken.ScopeAuthentication)
 		if err != nil {
 			_ = InvalidCredentials(w)
 			fmt.Println("error retrieving token from database: ", err)

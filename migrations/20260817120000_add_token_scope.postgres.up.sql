@@ -1,0 +1,1 @@
+ALTER TABLE tokens ADD COLUMN scope VARCHAR(32) NOT NULL DEFAULT 'authentication';

@@ -281,6 +281,36 @@ func (_m *Repo) FetchUserByToken(token string) (*models.User, error) {
 	return r0, r1
 }
 
+// FetchUserByTokenWithScope provides a mock function with given fields: token, scope
+func (_m *Repo) FetchUserByTokenWithScope(token string, scope string) (*models.User, error) {
+	ret := _m.Called(token, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FetchUserByTokenWithScope")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (*models.User, error)); ok {
+		return rf(token, scope)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) *models.User); ok {
+		r0 = rf(token, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*models.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(token, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // InsertAvatar provides a mock function with given fields: avatar
 func (_m *Repo) InsertAvatar(avatar *models.Avatar) (models.Avatar, error) {
 	ret := _m.Called(avatar)

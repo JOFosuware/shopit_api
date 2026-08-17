@@ -14,7 +14,7 @@ type Order struct {
 	UserID        uuid.UUID `json:"userID"`
 	PaidAt        time.Time `json:"paidAt"`
 	ItemPrice     int       `json:"itemsPrice"`
-	TaxPrice      float64       `json:"taxPrice"`
+	TaxPrice      float64   `json:"taxPrice"`
 	ShippingPrice int       `json:"shippingPrice"`
 	TotalPrice    int       `json:"totalPrice"`
 	OrderStatus   string    `json:"orderStatus"`

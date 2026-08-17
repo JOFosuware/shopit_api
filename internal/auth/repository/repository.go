@@ -194,21 +194,21 @@ func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
 func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-
-	// delete existing tokens
-	query := `delete from tokens where user_id = $1`
-	_, err := r.DB.ExecContext(ctx, query, userID)
+	// delete existing tokens of the same scope for this user (allow auth and reset tokens to coexist)
+	query := `delete from tokens where user_id = $1 and scope = $2`
+	_, err := r.DB.ExecContext(ctx, query, userID, t.Scope)
 	if err != nil {
 		return err
 	}
 
-	query = `insert into tokens (token_hash, expiry, user_id, created_at, updated_at)
-			values ($1, $2, $3, $4, $5)`
+	query = `insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at)
+			values ($1, $2, $3, $4, $5, $6)`
 
 	_, err = r.DB.ExecContext(ctx, query,
 		t.Hash,
 		t.Expiry,
 		userID,
+		t.Scope,
 		time.Now(),
 		time.Now(),
 	)
@@ -227,13 +227,15 @@ func (r *AuthRepository) FetchTokenById(id uuid.UUID) (*models.Token, error) {
 
 	var token models.Token
 
-	query := `select * from tokens where user_id = $1`
+	// select fields explicitly including scope
+	query := `select token_id, token_hash, expiry, user_id, scope, created_at, updated_at from tokens where user_id = $1`
 
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&token.ID,
 		&token.Hash,
 		&token.Expiry,
 		&token.UserID,
+		&token.Scope,
 		&token.CreatedAt,
 		&token.UpdatedAt,
 	)
@@ -294,6 +296,40 @@ func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
 		&user.Password,
 		&user.Role,
 		&user.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+// FetchUserByTokenWithScope fetches a user by token string and required scope.
+func (r *AuthRepository) FetchUserByTokenWithScope(token string, scope string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	tokenHash := sha256.Sum256([]byte(token))
+	var user models.User
+
+	query := `
+		select
+			u.user_id, u.name, u.email, u.role
+		from
+			users u
+			inner join tokens t on (u.user_id = t.user_id)
+		where
+			t.token_hash = $1
+			and t.expiry > $2
+			and t.scope = $3
+	`
+
+	err := r.DB.QueryRowContext(ctx, query, tokenHash[:], time.Now(), scope).Scan(
+		&user.ID,
+		&user.Name,
+		&user.Email,
+		&user.Role,
 	)
 
 	if err != nil {

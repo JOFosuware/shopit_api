@@ -33,6 +33,9 @@ type Repo interface {
 	// FetchUserByToken fetches a user by token
 	FetchUserByToken(token string) (*models.User, error)
 
+	// FetchUserByTokenWithScope fetches a user by token and required scope
+	FetchUserByTokenWithScope(token string, scope string) (*models.User, error)
+
 	// UpdateUser updates the users table with new changes
 	UpdateUser(user models.User) error
 

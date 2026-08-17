@@ -14,6 +14,7 @@ import (
 
 const (
 	ScopeAuthentication = "authentication"
+	ScopePasswordReset  = "password_reset"
 )
 
 type Tokener interface {

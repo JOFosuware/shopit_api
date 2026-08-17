@@ -19,6 +19,7 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 	"github.com/jofosuware/go/shopit/pkg/mailer"
 	"github.com/jofosuware/go/shopit/pkg/token"
+	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 )
 
 // AuthUC provides authentication and user management use cases.
@@ -26,7 +27,7 @@ import (
 type AuthUC struct {
 	cld    cloudinary.CloudUploader
 	repo   auth.Repo
-	token  token.Tokener
+	token  pkgtoken.Tokener
 	bcrypt bcrypt.Encryptor
 	mail   mailer.Mailer
 }
@@ -76,7 +77,7 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 		return nil, fmt.Errorf("error uploading to cloud: %v", err)
 	}
 
-	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, token.ScopeAuthentication)
+	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %v", err)
 	}
@@ -119,7 +120,7 @@ func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 		return nil, fmt.Errorf("error comparing password: %v", err)
 	}
 
-	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, "authentication")
+	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return nil, fmt.Errorf("error generating token: %v", err)
 	}
@@ -163,8 +164,8 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 		return nil, err
 	}
 
-	// generate token
-	t, err := a.token.GenerateToken(user.ID, 60*time.Minute, token.ScopeAuthentication)
+	// generate password-reset token (distinct scope)
+	t, err := a.token.GenerateToken(user.ID, 60*time.Minute, pkgtoken.ScopePasswordReset)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +205,8 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 		return nil, errors.New("bad link")
 	}
 
-	// get user for token
-	user, err := a.repo.FetchUserByToken(newToken)
+	// get user for token - require repository method that enforces scope
+	user, err := a.repo.FetchUserByTokenWithScope(newToken, pkgtoken.ScopePasswordReset)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +218,7 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 	}
 
 	// generate new token
-	t, err := a.token.GenerateToken(user.ID, 24*time.Hour, token.ScopeAuthentication)
+	t, err := a.token.GenerateToken(user.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*
 	}
 
 	// generate new token
-	t, err := a.token.GenerateToken(user.ID, 24*time.Hour, token.ScopeAuthentication)
+	t, err := a.token.GenerateToken(user.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return nil, err
 	}
@@ -431,7 +432,8 @@ func (a *AuthUC) DeleteUser(actor *models.User, userID uuid.UUID) error {
 
 // DeleteUserToken deletes user token from the database
 func (a *AuthUC) DeleteUserToken(token string) error {
-	user, err := a.repo.FetchUserByToken(token)
+	// token used to logout must be an authentication token
+	user, err := a.repo.FetchUserByTokenWithScope(token, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return err
 	}

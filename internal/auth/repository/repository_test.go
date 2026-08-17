@@ -198,26 +198,26 @@ func TestAuthRepository_FetchUserByEmail(t *testing.T) {
 func TestAuthRepository_InsertToken(t *testing.T) {
 	repo, mock, db := newTestRepo(t)
 	defer db.Close()
-	token := &models.Token{Hash: []byte("hash"), Expiry: time.Now().Add(time.Hour)}
+	token := &models.Token{Hash: []byte("hash"), Expiry: time.Now().Add(time.Hour), Scope: "authentication"}
 	userID := uuid.New()
-	queryDelete := regexp.QuoteMeta(`delete from tokens where user_id = $1`)
-	queryInsert := regexp.QuoteMeta(`insert into tokens (token_hash, expiry, user_id, created_at, updated_at) values ($1, $2, $3, $4, $5)`)
+	queryDelete := regexp.QuoteMeta(`delete from tokens where user_id = $1 and scope = $2`)
+	queryInsert := regexp.QuoteMeta(`insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at) values ($1, $2, $3, $4, $5, $6)`)
 	t.Run("success", func(t *testing.T) {
-		mock.ExpectExec(queryDelete).WithArgs(userID).WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, token.Scope, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
 		err := repo.InsertToken(token, userID)
 		assert.NoError(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("delete error", func(t *testing.T) {
-		mock.ExpectExec(queryDelete).WithArgs(userID).WillReturnError(errors.New("delete error"))
+		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnError(errors.New("delete error"))
 		err := repo.InsertToken(token, userID)
 		assert.Error(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("insert error", func(t *testing.T) {
-		mock.ExpectExec(queryDelete).WithArgs(userID).WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnError(errors.New("insert error"))
+		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, token.Scope, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnError(errors.New("insert error"))
 		err := repo.InsertToken(token, userID)
 		assert.Error(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -229,10 +229,10 @@ func TestAuthRepository_FetchTokenById(t *testing.T) {
 	repo, mock, db := newTestRepo(t)
 	defer db.Close()
 	id := uuid.New()
-	query := regexp.QuoteMeta(`select * from tokens where user_id = $1`)
+	query := regexp.QuoteMeta(`select token_id, token_hash, expiry, user_id, scope, created_at, updated_at from tokens where user_id = $1`)
 	t.Run("success", func(t *testing.T) {
-		rows := sqlmock.NewRows([]string{"id", "token_hash", "expiry", "user_id", "created_at", "updated_at"}).
-			AddRow(uuid.New(), []byte("hash"), time.Now().Add(time.Hour), id, time.Now(), time.Now())
+		rows := sqlmock.NewRows([]string{"token_id", "token_hash", "expiry", "user_id", "scope", "created_at", "updated_at"}).
+			AddRow(uuid.New(), []byte("hash"), time.Now().Add(time.Hour), id, "authentication", time.Now(), time.Now())
 		mock.ExpectQuery(query).WithArgs(id).WillReturnRows(rows)
 		tok, err := repo.FetchTokenById(id)
 		assert.NoError(t, err)
@@ -342,7 +342,7 @@ func TestAuthRepository_FetchAllUsers(t *testing.T) {
 		assert.Equal(t, "User1", users[0].Name)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
-	
+
 	t.Run("query error", func(t *testing.T) {
 		mock.ExpectQuery(query).WillReturnError(errors.New("query error"))
 		_, err := repo.FetchAllUsers()
