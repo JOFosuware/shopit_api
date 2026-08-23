@@ -93,10 +93,13 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 // Endpoint: POST /api/v1/auth/login
 // Expects JSON body: email, password.
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
-	var u *models.User
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
 
-	// Parse json into user struct
-	err := utils.ReadJSON(w, r, &u)
+	// Parse JSON into a dedicated login request payload rather than a full user model.
+	err := utils.ReadJSON(w, r, &req)
 	if err != nil {
 		_ = utils.BadRequest(w, r, err)
 		h.logger.Errorf("reading json error: %v", err)
@@ -105,8 +108,8 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	// validate data
 	v := validator.New()
-	v.Check(u.Email != "", "email", "user email must be provided")
-	v.Check(len(u.Password) > 7, "password", "password must be at least 8 characters")
+	v.Check(req.Email != "", "email", "user email must be provided")
+	v.Check(len(req.Password) > 7, "password", "password must be at least 8 characters")
 
 	if !v.Valid() {
 		utils.FailedValidation(w, r, v.Errors)
@@ -114,7 +117,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.authUC.Login(u.Email, u.Password)
+	res, err := h.authUC.Login(req.Email, req.Password)
 	if err != nil {
 		_ = utils.BadRequest(w, r, errors.New("error logging in user, invalid user or user does not exists"))
 		h.logger.Errorf("Error logging in user: %v", err)

@@ -147,95 +147,85 @@ func TestRegister(t *testing.T) {
 	}
 }
 
-// TestLogin tests the Login handler for user authentication, covering success, invalid credentials, malformed JSON, and validation errors.
+// TestLogin tests the Login handler for user authentication, covering success, invalid credentials, malformed JSON, and validation errors
+
+
 func TestLogin(t *testing.T) {
 	h, logger, authUC := newTestHandler(t)
-
 	tests := []struct {
-		name      string
-		jsonData  []byte
-		mockUser  models.User
-		mockResp  interface{}
-		mockError error
-		wantCode  int
+		name          string
+		jsonData      []byte
+		mockUser      models.User
+		mockResp      *models.UserResponse
+		mockError     error
+		wantCode      int
+		expectUsecase bool
+		expectLogger  bool
 	}{
 		{
-			name:      "Successful login",
-			jsonData:  []byte(`{"email": "user@gmail.com", "password": "Science@1992"}`),
-			mockUser:  models.User{Email: "user@gmail.com", Password: "Science@1992"},
-			mockResp:  &models.UserResponse{},
-			mockError: nil,
-			wantCode:  http.StatusOK,
+			name:          "Successful login",
+			jsonData:      []byte(`{"email": "user@gmail.com", "password": "Science@1992"}`),
+			mockUser:      models.User{Email: "user@gmail.com", Password: "Science@1992"},
+			mockResp:      &models.UserResponse{},
+			wantCode:      http.StatusOK,
+			expectUsecase: true,
 		},
 		{
-			name:      "Invalid credentials",
-			jsonData:  []byte(`{"email": "user@gmail.com", "password": "wrongpass"}`),
-			mockUser:  models.User{Email: "user@gmail.com", Password: "wrongpass"},
-			mockResp:  nil,
-			mockError: assert.AnError,
-			wantCode:  http.StatusBadRequest,
+			name:          "Invalid credentials",
+			jsonData:      []byte(`{"email": "user@gmail.com", "password": "wrongpass"}`),
+			mockUser:      models.User{Email: "user@gmail.com", Password: "wrongpass"},
+			mockError:     assert.AnError,
+			wantCode:      http.StatusBadRequest,
+			expectUsecase: true,
+			expectLogger:  true,
 		},
 		{
-			name:      "Malformed JSON",
-			jsonData:  []byte(`{"email": "user@gmail.com", "password": "Science@1992"`), // missing closing brace
-			mockUser:  models.User{},
-			mockResp:  nil,
-			mockError: nil,
-			wantCode:  http.StatusBadRequest,
+			name:          "Malformed JSON",
+			jsonData:      []byte(`{"email": "user@gmail.com", "password": "Science@1992"`),
+			wantCode:      http.StatusBadRequest,
+			expectLogger:  true,
 		},
 		{
-			name:      "Validation error - missing email",
-			jsonData:  []byte(`{"email": "", "password": "Science@1992"}`),
-			mockUser:  models.User{Email: "", Password: "Science@1992"},
-			mockResp:  nil,
-			mockError: nil,
-			wantCode:  http.StatusUnprocessableEntity,
+			name:          "Validation error - missing email",
+			jsonData:      []byte(`{"email": "", "password": "Science@1992"}`),
+			mockUser:      models.User{Email: "", Password: "Science@1992"},
+			wantCode:      http.StatusUnprocessableEntity,
+			expectLogger:  true,
 		},
 		{
-			name:      "Validation error - short password",
-			jsonData:  []byte(`{"email": "user@gmail.com", "password": "short"}`),
-			mockUser:  models.User{Email: "user@gmail.com", Password: "short"},
-			mockResp:  nil,
-			mockError: nil,
-			wantCode:  http.StatusUnprocessableEntity,
+			name:          "Validation error - short password",
+			jsonData:      []byte(`{"email": "user@gmail.com", "password": "short"}`),
+			mockUser:      models.User{Email: "user@gmail.com", Password: "short"},
+			wantCode:      http.StatusUnprocessableEntity,
+			expectLogger:  true,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "Malformed JSON" {
-				req, _ := http.NewRequest(http.MethodPost, "/login", bytes.NewBuffer(tt.jsonData))
-				rr := httptest.NewRecorder()
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
-				h.Login(rr, req)
-				assert.Equal(t, tt.wantCode, rr.Code)
-				logger.AssertExpectations(t)
-				return
-			}
-			if tt.name == "Validation error - missing email" || tt.name == "Validation error - short password" {
-				req, _ := http.NewRequest(http.MethodPost, "/login", bytes.NewBuffer(tt.jsonData))
-				rr := httptest.NewRecorder()
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
-				h.Login(rr, req)
-				assert.Equal(t, tt.wantCode, rr.Code)
-				logger.AssertExpectations(t)
-				return
-			}
-			req, _ := http.NewRequest(http.MethodPost, "/login", bytes.NewBuffer(tt.jsonData))
+			req, err := http.NewRequest(http.MethodPost, "/login", bytes.NewBuffer(tt.jsonData))
+			require.NoError(t, err)
 			rr := httptest.NewRecorder()
-			if tt.mockError == nil {
-				authUC.On("Login", tt.mockUser.Email, tt.mockUser.Password).Return(tt.mockResp, nil).Once()
-			} else {
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
-				authUC.On("Login", tt.mockUser.Email, tt.mockUser.Password).Return(nil, tt.mockError).Once()
+
+			if tt.expectUsecase {
+				authUC.On("Login", tt.mockUser.Email, tt.mockUser.Password).Return(tt.mockResp, tt.mockError).Once()
 			}
+			if tt.expectLogger {
+				logger.On("Errorf", mock.Anything, mock.Anything).Once()
+			}
+
 			h.Login(rr, req)
 			assert.Equal(t, tt.wantCode, rr.Code)
-			authUC.AssertExpectations(t)
-			logger.AssertExpectations(t)
+
+			if tt.expectUsecase {
+				authUC.AssertExpectations(t)
+			}
+			if tt.expectLogger {
+				logger.AssertExpectations(t)
+			}
 		})
 	}
 }
+
 
 // TestSendPasswordResetEmail tests the SendPasswordResetEmail handler, covering success, missing fields, multipart parsing errors, and use case errors.
 func TestSendPasswordResetEmail(t *testing.T) {
