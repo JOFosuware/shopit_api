@@ -53,7 +53,7 @@ func NewAuthUC(
 func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse, error) {
 	u, err := a.repo.FetchUserByEmail(user.Email)
 	if err != nil && err.Error() != "sql: no rows in result set" {
-		return nil, fmt.Errorf("error fetching user: %v", err)
+		return nil, fmt.Errorf("error fetching user: %w", err)
 	}
 
 	if err == nil && u.Email == user.Email {
@@ -62,29 +62,29 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 
 	hashPassword, err := a.bcrypt.GenerateFromPassword([]byte(user.Password))
 	if err != nil {
-		return nil, fmt.Errorf("error hashing password: %v", err)
+		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
 
 	user.Password = string(hashPassword)
 
 	u, err = a.repo.InsertUser(user)
 	if err != nil {
-		return nil, fmt.Errorf("error saving user: %v", err)
+		return nil, fmt.Errorf("error saving user: %w", err)
 	}
 
 	res, err := a.cld.UploadToCloud("avatar", avatar)
 	if err != nil {
-		return nil, fmt.Errorf("error uploading to cloud: %v", err)
+		return nil, fmt.Errorf("error uploading to cloud: %w", err)
 	}
 
 	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %v", err)
+		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
 	err = a.repo.InsertToken(t, u.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error saving token: %v", err)
+		return nil, fmt.Errorf("error saving token: %w", err)
 	}
 
 	avtar := models.Avatar{
@@ -95,7 +95,7 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 
 	avtar, err = a.repo.InsertAvatar(&avtar)
 	if err != nil {
-		return nil, fmt.Errorf("error saving avatar: %v", err)
+		return nil, fmt.Errorf("error saving avatar: %w", err)
 	}
 
 	u.Avatar = avtar
@@ -161,13 +161,13 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 
 	user, err := a.repo.FetchUserByEmail(email)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching user by email: %w", err)
 	}
 
 	// generate password-reset token (distinct scope)
 	t, err := a.token.GenerateToken(user.ID, 60*time.Minute, pkgtoken.ScopePasswordReset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error generating token: %w", err)
 	}
 
 	resetUrl := fmt.Sprintf("%s://%s/password/reset/%s", protocol, strings.Split(r.Host, ":")[0], t.PlainText)
@@ -181,13 +181,13 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 	//send mail
 	err = a.mail.SendMail("DePeridot <postmaster@sandboxa7a6fd0db7744e4f8917325ae3ce1a04.mailgun.org>", email, "ShopIT Password Recovery", "password-reset", data)
 	if err != nil {
-		return nil, fmt.Errorf("error sending mail: %v", err)
+		return nil, fmt.Errorf("error sending mail: %w", err)
 	}
 
 	// save token
 	err = a.repo.InsertToken(t, user.ID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error saving token: %w", err)
 	}
 
 	resp := models.Response{

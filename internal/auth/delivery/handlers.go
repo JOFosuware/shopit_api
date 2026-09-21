@@ -76,7 +76,11 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.authUC.Register(u, avatar)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("error registering user"))
+		if errors.Is(err, auth.ErrUserAlreadyExists) {
+			_ = utils.BadRequest(w, r, errors.New("user already exists"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error registering user"))
+		}
 		h.logger.Errorf("Error registering user: %v", err)
 		return
 	}
@@ -119,7 +123,13 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.authUC.Login(req.Email, req.Password)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("error logging in user, invalid user or user does not exists"))
+		if errors.Is(err, auth.ErrUserNotFound) {
+			_ = utils.BadRequest(w, r, errors.New("user not found"))
+		} else if errors.Is(err, auth.ErrInvalidPassword) {
+			_ = utils.BadRequest(w, r, errors.New("invalid password"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error logging in user"))
+		}
 		h.logger.Errorf("Error logging in user: %v", err)
 		return
 	}
@@ -230,7 +240,13 @@ func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	// Fetch user details
 	user, err := h.authUC.GetUserDetails(actor, actor.ID)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrUserNotFound) {
+			_ = utils.BadRequest(w, r, errors.New("user not found"))
+		} else if errors.Is(err, auth.ErrUserAccessDenied) {
+			_ = utils.BadRequest(w, r, errors.New("access denied"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error getting user details"))
+		}
 		h.logger.Errorf("error getting user details: %v", err)
 		return
 	}
@@ -286,7 +302,13 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.authUC.UpdatePassword(user.ID, passwords)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrInvalidOldPassword) {
+			_ = utils.BadRequest(w, r, errors.New("invalid old password"))
+		} else if errors.Is(err, auth.ErrPasswordUpdateFailed) {
+			_ = utils.BadRequest(w, r, errors.New("failed to update password"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error updating password"))
+		}
 		h.logger.Errorf("Error updating password: %v", err)
 		return
 	}
@@ -338,7 +360,13 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	err = h.authUC.UpdateProfile(*user, avatar)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrAvatarUploadFailed) {
+			_ = utils.BadRequest(w, r, errors.New("failed to upload avatar"))
+		} else if errors.Is(err, auth.ErrAvatarDeletionFailed) {
+			_ = utils.BadRequest(w, r, errors.New("failed to delete old avatar"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error updating profile"))
+		}
 		h.logger.Errorf("Error updating profile: %v", err)
 		return
 	}
@@ -370,7 +398,11 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 
 	err := h.authUC.DeleteUserToken(t)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrTokenNotFound) {
+			_ = utils.BadRequest(w, r, errors.New("token not found"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error deleting user token"))
+		}
 		h.logger.Errorf("error deleting user token: %v", err)
 		return
 	}
@@ -402,10 +434,15 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, err := h.authUC.GetAllUsers(actor)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrForbidden) {
+			_ = utils.BadRequest(w, r, errors.New("forbidden: admin only"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error getting all users"))
+		}
 		h.logger.Errorf("error getting all users: %v", err)
 		return
 	}
+
 
 	res := struct {
 		Success bool           `json:"success"`
@@ -523,7 +560,13 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.authUC.UpdateUser(actor, userID, user)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrUserNotFound) {
+			_ = utils.BadRequest(w, r, errors.New("user not found"))
+		} else if errors.Is(err, auth.ErrUserUpdateFailed) {
+			_ = utils.BadRequest(w, r, errors.New("failed to update user"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error updating user"))
+		}
 		h.logger.Errorf("error updating user: %v", err)
 		return
 	}
@@ -562,7 +605,13 @@ func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 	err = h.authUC.DeleteUser(actor, userID)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
+		if errors.Is(err, auth.ErrUserNotFound) {
+			_ = utils.BadRequest(w, r, errors.New("user not found"))
+		} else if errors.Is(err, auth.ErrUserDeletionFailed) {
+			_ = utils.BadRequest(w, r, errors.New("failed to delete user"))
+		} else {
+			_ = utils.BadRequest(w, r, errors.New("error deleting user"))
+		}
 		h.logger.Errorf("error deleting user: %v", err)
 		return
 	}
