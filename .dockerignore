@@ -1,0 +1,7 @@
+.git
+.github
+.gocache
+.gomodcache
+config/config-local.yml
+coverage.out
+dist

@@ -233,6 +233,19 @@ To run the tests for this project, you will need to have Go installed and config
 go test ./...
 ```
 
+## CI/CD
+
+GitHub Actions validates pull requests and pushes to `main` with Go 1.27 module
+tidiness, formatting, vetting, race-enabled tests, coverage, a Linux build, and
+a Docker build. CodeQL runs for pull requests, `main`, and weekly.
+
+Create and push a semantic version tag such as `v1.2.3` to publish a
+multi-architecture (`linux/amd64`, `linux/arm64`) image to GitHub Container
+Registry at `ghcr.io/<owner>/shopit_api`. Each published image receives a
+Sigstore-backed GitHub provenance attestation and an immutable commit-SHA tag.
+Configure the package visibility and any GitHub Environment protections in the
+repository settings before making the first release.
+
 ## Project Structure
 
 The project follows a standard Go project layout:

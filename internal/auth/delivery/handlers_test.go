@@ -149,7 +149,6 @@ func TestRegister(t *testing.T) {
 
 // TestLogin tests the Login handler for user authentication, covering success, invalid credentials, malformed JSON, and validation errors
 
-
 func TestLogin(t *testing.T) {
 	h, logger, authUC := newTestHandler(t)
 	tests := []struct {
@@ -180,24 +179,24 @@ func TestLogin(t *testing.T) {
 			expectLogger:  true,
 		},
 		{
-			name:          "Malformed JSON",
-			jsonData:      []byte(`{"email": "user@gmail.com", "password": "Science@1992"`),
-			wantCode:      http.StatusBadRequest,
-			expectLogger:  true,
+			name:         "Malformed JSON",
+			jsonData:     []byte(`{"email": "user@gmail.com", "password": "Science@1992"`),
+			wantCode:     http.StatusBadRequest,
+			expectLogger: true,
 		},
 		{
-			name:          "Validation error - missing email",
-			jsonData:      []byte(`{"email": "", "password": "Science@1992"}`),
-			mockUser:      models.User{Email: "", Password: "Science@1992"},
-			wantCode:      http.StatusUnprocessableEntity,
-			expectLogger:  true,
+			name:         "Validation error - missing email",
+			jsonData:     []byte(`{"email": "", "password": "Science@1992"}`),
+			mockUser:     models.User{Email: "", Password: "Science@1992"},
+			wantCode:     http.StatusUnprocessableEntity,
+			expectLogger: true,
 		},
 		{
-			name:          "Validation error - short password",
-			jsonData:      []byte(`{"email": "user@gmail.com", "password": "short"}`),
-			mockUser:      models.User{Email: "user@gmail.com", Password: "short"},
-			wantCode:      http.StatusUnprocessableEntity,
-			expectLogger:  true,
+			name:         "Validation error - short password",
+			jsonData:     []byte(`{"email": "user@gmail.com", "password": "short"}`),
+			mockUser:     models.User{Email: "user@gmail.com", Password: "short"},
+			wantCode:     http.StatusUnprocessableEntity,
+			expectLogger: true,
 		},
 	}
 	for _, tt := range tests {
@@ -225,7 +224,6 @@ func TestLogin(t *testing.T) {
 		})
 	}
 }
-
 
 // TestSendPasswordResetEmail tests the SendPasswordResetEmail handler, covering success, missing fields, multipart parsing errors, and use case errors.
 func TestSendPasswordResetEmail(t *testing.T) {

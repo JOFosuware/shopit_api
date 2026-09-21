@@ -443,7 +443,6 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
 	res := struct {
 		Success bool           `json:"success"`
 		Users   []*models.User `json:"users"`
