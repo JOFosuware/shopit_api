@@ -28,7 +28,7 @@ func (s *Serve) Setup() {
 
 	// Auth setups
 	authRepo := authRepository.NewAuthRepository(s.DB)
-	authUseCase := authUC.NewAuthUC(cld, authRepo, token.NewToken(), bcrypt.NewEncrypt(), mailer.NewMail(s.cfg))
+	authUseCase := authUC.NewAuthUC(cld, authRepo, token.NewToken(), bcrypt.NewEncrypt(), mailer.NewMail(s.cfg), s.cfg.Frontend, s.cfg.EmailFrom)
 	authHandlers = authHTTP.NewAuthHandlers(s.logger, authUseCase)
 
 	// UTILS

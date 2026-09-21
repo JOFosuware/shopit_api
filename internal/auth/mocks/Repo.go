@@ -405,6 +405,20 @@ func (_m *Repo) UpdateUser(user models.User) error {
 	return r0
 }
 
+// UpdatePasswordAndReplaceToken provides a mock function with given fields: user, token, revokeResetTokens
+func (_m *Repo) UpdatePasswordAndReplaceToken(user models.User, token *models.Token, revokeResetTokens bool) error {
+	ret := _m.Called(user, token, revokeResetTokens)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdatePasswordAndReplaceToken")
+	}
+
+	if rf, ok := ret.Get(0).(func(models.User, *models.Token, bool) error); ok {
+		return rf(user, token, revokeResetTokens)
+	}
+	return ret.Error(0)
+}
+
 // NewRepo creates a new instance of Repo. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewRepo(t interface {

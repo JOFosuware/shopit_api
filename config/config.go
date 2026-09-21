@@ -21,6 +21,7 @@ type Config struct {
 	Cloudinary Cloudinary
 	SecretKey  string
 	Frontend   string
+	EmailFrom  string `mapstructure:"email_from"`
 }
 
 // ServerConfig Server config struct
@@ -118,6 +119,8 @@ func LoadConfig(filename string) (*viper.Viper, error) {
 	v.BindEnv("cloudinary.name", "CLOUDINARY_NAME")
 	v.BindEnv("cloudinary.key", "CLOUDINARY_KEY")
 	v.BindEnv("cloudinary.secret", "CLOUDINARY_SECRET")
+	v.BindEnv("frontend", "FRONTEND_URL")
+	v.BindEnv("email_from", "EMAIL_FROM")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -196,6 +199,12 @@ func (c *Config) Validate() error {
 	// SMTP
 	if c.SMTP.Host == "" || c.SMTP.Port == 0 || c.SMTP.Username == "" || c.SMTP.Password == "" {
 		return errors.New("incomplete SMTP configuration: set SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD")
+	}
+	if c.Frontend == "" {
+		return errors.New("missing FRONTEND_URL (frontend)")
+	}
+	if c.EmailFrom == "" {
+		return errors.New("missing EMAIL_FROM (email_from)")
 	}
 
 	return nil

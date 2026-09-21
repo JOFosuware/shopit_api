@@ -6,6 +6,7 @@
 package usecase
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,46 +19,51 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/bcrypt"
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 	"github.com/jofosuware/go/shopit/pkg/mailer"
-	"github.com/jofosuware/go/shopit/pkg/token"
 	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 )
 
 // AuthUC provides authentication and user management use cases.
 // It should be constructed with all required dependencies.
 type AuthUC struct {
-	cld    cloudinary.CloudUploader
-	repo   auth.Repo
-	token  pkgtoken.Tokener
-	bcrypt bcrypt.Encryptor
-	mail   mailer.Mailer
+	cld         cloudinary.CloudUploader
+	repo        auth.Repo
+	token       pkgtoken.Tokener
+	bcrypt      bcrypt.Encryptor
+	mail        mailer.Mailer
+	frontendURL string
+	emailFrom   string
 }
 
 // NewAuthUC returns a new AuthUC with the provided dependencies.
 func NewAuthUC(
 	cld cloudinary.CloudUploader,
 	repo auth.Repo,
-	token token.Tokener,
+	token pkgtoken.Tokener,
 	b bcrypt.Encryptor,
 	mail mailer.Mailer,
+	frontendURL string,
+	emailFrom string,
 ) *AuthUC {
 	return &AuthUC{
-		cld:    cld,
-		repo:   repo,
-		token:  token,
-		bcrypt: b,
-		mail:   mail,
+		cld:         cld,
+		repo:        repo,
+		token:       token,
+		bcrypt:      b,
+		mail:        mail,
+		frontendURL: strings.TrimRight(frontendURL, "/"),
+		emailFrom:   emailFrom,
 	}
 }
 
 // Register creates a new user, uploads avatar, and returns a user response with token.
 func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse, error) {
 	u, err := a.repo.FetchUserByEmail(user.Email)
-	if err != nil && err.Error() != "sql: no rows in result set" {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("error fetching user: %w", err)
 	}
 
-	if err == nil && u.Email == user.Email {
-		return nil, fmt.Errorf("user %s already exists", u.Name)
+	if err == nil {
+		return nil, fmt.Errorf("%w: %s", auth.ErrUserAlreadyExists, user.Email)
 	}
 
 	hashPassword, err := a.bcrypt.GenerateFromPassword([]byte(user.Password))
@@ -74,17 +80,17 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 
 	res, err := a.cld.UploadToCloud("avatar", avatar)
 	if err != nil {
-		return nil, fmt.Errorf("error uploading to cloud: %w", err)
+		return nil, errors.Join(fmt.Errorf("error uploading to cloud: %w", err), a.repo.DeleteUserById(u.ID))
 	}
 
 	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate token: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to generate token: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
 	}
 
 	err = a.repo.InsertToken(t, u.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error saving token: %w", err)
+		return nil, errors.Join(fmt.Errorf("error saving token: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
 	}
 
 	avtar := models.Avatar{
@@ -95,7 +101,7 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 
 	avtar, err = a.repo.InsertAvatar(&avtar)
 	if err != nil {
-		return nil, fmt.Errorf("error saving avatar: %w", err)
+		return nil, errors.Join(fmt.Errorf("error saving avatar: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
 	}
 
 	u.Avatar = avtar
@@ -109,15 +115,23 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 	return ur, nil
 }
 
+func (a *AuthUC) destroyAvatar(publicID string) error {
+	_, err := a.cld.Destroy(publicID)
+	return err
+}
+
 // Login authenticates a user and returns a user response with token.
 func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 	u, err := a.repo.FetchUserByEmail(email)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching user by email: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", auth.ErrUserNotFound, err)
+		}
+		return nil, fmt.Errorf("error fetching user by email: %w", err)
 	}
 
 	if err := a.bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password)); err != nil {
-		return nil, fmt.Errorf("error comparing password: %v", err)
+		return nil, fmt.Errorf("%w: %v", auth.ErrInvalidPassword, err)
 	}
 
 	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
@@ -147,14 +161,6 @@ func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 
 // SendPasswordResetEmail sends a password reset email to the given address.
 func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.Response, error) {
-	var protocol string
-	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded != "" {
-		protocol = forwarded
-	} else if r.TLS != nil {
-		protocol = "https"
-	} else {
-		protocol = "http"
-	}
 	if email == "" {
 		return nil, errors.New("user must provide an email")
 	}
@@ -170,24 +176,26 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 		return nil, fmt.Errorf("error generating token: %w", err)
 	}
 
-	resetUrl := fmt.Sprintf("%s://%s/password/reset/%s", protocol, strings.Split(r.Host, ":")[0], t.PlainText)
+	if a.frontendURL == "" || a.emailFrom == "" {
+		return nil, errors.New("password reset is not configured")
+	}
+	resetURL := fmt.Sprintf("%s/password/reset/%s", a.frontendURL, t.PlainText)
 
 	var data struct {
 		Link string
 	}
 
-	data.Link = resetUrl
+	data.Link = resetURL
 
-	//send mail
-	err = a.mail.SendMail("DePeridot <postmaster@sandboxa7a6fd0db7744e4f8917325ae3ce1a04.mailgun.org>", email, "ShopIT Password Recovery", "password-reset", data)
-	if err != nil {
-		return nil, fmt.Errorf("error sending mail: %w", err)
-	}
-
-	// save token
+	// Persist the token before sending its link so recipients never receive an unusable token.
 	err = a.repo.InsertToken(t, user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error saving token: %w", err)
+	}
+
+	err = a.mail.SendMail(a.emailFrom, email, "ShopIT Password Recovery", "password-reset", data)
+	if err != nil {
+		return nil, fmt.Errorf("error sending mail: %w", err)
 	}
 
 	resp := models.Response{
@@ -201,13 +209,16 @@ func (a *AuthUC) SendPasswordResetEmail(email string, r *http.Request) (*models.
 // ResetPassword resets a user's password using the provided token.
 func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse, error) {
 	// validate token
-	if newToken == "" {
+	if newToken == "" || password == "" {
 		return nil, errors.New("bad link")
 	}
 
 	// get user for token - require repository method that enforces scope
 	user, err := a.repo.FetchUserByTokenWithScope(newToken, pkgtoken.ScopePasswordReset)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", auth.ErrTokenNotFound, err)
+		}
 		return nil, err
 	}
 
@@ -223,15 +234,8 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 		return nil, err
 	}
 
-	// save new token
-	err = a.repo.InsertToken(t, user.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	// update password
 	user.Password = string(hashedPassword)
-	err = a.repo.UpdateUser(*user)
+	err = a.repo.UpdatePasswordAndReplaceToken(*user, t, true)
 	if err != nil {
 		return nil, err
 	}
@@ -247,18 +251,19 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 
 // UpdatePassword updates the password of a user.
 func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error) {
-	var res *models.UserResponse
-
 	// get user
 	user, err := a.repo.FetchUserById(userId)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", auth.ErrUserNotFound, err)
+		}
 		return nil, err
 	}
 
 	// compare password
 	err = a.bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(passwords.OldPassword))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", auth.ErrInvalidOldPassword, err)
 	}
 
 	// hash password
@@ -273,20 +278,13 @@ func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*
 		return nil, err
 	}
 
-	// save new token
-	err = a.repo.InsertToken(t, user.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	// update password
 	user.Password = string(hashedPassword)
-	err = a.repo.UpdateUser(*user)
+	err = a.repo.UpdatePasswordAndReplaceToken(*user, t, false)
 	if err != nil {
 		return nil, err
 	}
 
-	res = &models.UserResponse{
+	res := &models.UserResponse{
 		Success: true,
 		Token:   t.PlainText,
 		User:    *user,
@@ -339,7 +337,7 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 // GetAllUsers returns all users.
 func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
 	if actor == nil || actor.Role != "admin" {
-		return nil, errors.New("forbidden: admin only")
+		return nil, auth.ErrForbidden
 	}
 
 	users, err := a.repo.FetchAllUsers()
@@ -354,14 +352,17 @@ func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
 func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.User, error) {
 	// allow users to fetch their own details or admin to fetch any
 	if actor == nil {
-		return nil, errors.New("unauthenticated")
+		return nil, auth.ErrUserAccessDenied
 	}
 	if actor.Role != "admin" && actor.ID != userID {
-		return nil, errors.New("forbidden: admin only")
+		return nil, auth.ErrUserAccessDenied
 	}
 
 	user, err := a.repo.FetchUserById(userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", auth.ErrUserNotFound, err)
+		}
 		return nil, err
 	}
 
@@ -377,12 +378,15 @@ func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.U
 // UpdateUser updates the details of a user by ID.
 func (a *AuthUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error) {
 	if actor == nil || actor.Role != "admin" {
-		return nil, errors.New("forbidden: admin only")
+		return nil, auth.ErrForbidden
 	}
 
 	// get user
 	u, err := a.repo.FetchUserById(userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %v", auth.ErrUserNotFound, err)
+		}
 		return nil, err
 	}
 	u.Name = user.Name
@@ -391,7 +395,7 @@ func (a *AuthUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.Us
 
 	err = a.repo.UpdateUser(*u)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", auth.ErrUserUpdateFailed, err)
 	}
 
 	res := &models.UserResponse{
@@ -404,11 +408,14 @@ func (a *AuthUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.Us
 // DeleteUser deletes a user
 func (a *AuthUC) DeleteUser(actor *models.User, userID uuid.UUID) error {
 	if actor == nil || actor.Role != "admin" {
-		return errors.New("forbidden: admin only")
+		return auth.ErrForbidden
 	}
 
 	avatar, err := a.repo.FetchAvatarById(userID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %v", auth.ErrUserNotFound, err)
+		}
 		return err
 	}
 
@@ -424,7 +431,7 @@ func (a *AuthUC) DeleteUser(actor *models.User, userID uuid.UUID) error {
 
 	err = a.repo.DeleteUserById(userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", auth.ErrUserDeletionFailed, err)
 	}
 
 	return nil
@@ -435,6 +442,9 @@ func (a *AuthUC) DeleteUserToken(token string) error {
 	// token used to logout must be an authentication token
 	user, err := a.repo.FetchUserByTokenWithScope(token, pkgtoken.ScopeAuthentication)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: %v", auth.ErrTokenNotFound, err)
+		}
 		return err
 	}
 

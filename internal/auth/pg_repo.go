@@ -39,6 +39,10 @@ type Repo interface {
 	// UpdateUser updates the users table with new changes
 	UpdateUser(user models.User) error
 
+	// UpdatePasswordAndReplaceToken atomically changes a password, replaces the
+	// authentication token, and optionally invalidates password-reset tokens.
+	UpdatePasswordAndReplaceToken(user models.User, token *models.Token, revokeResetTokens bool) error
+
 	// FetchUserById returns a user by id and error if any error occurs
 	FetchUserById(id uuid.UUID) (*models.User, error)
 

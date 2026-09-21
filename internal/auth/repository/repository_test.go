@@ -115,7 +115,7 @@ func TestAuthRepository_FetchAvatarById(t *testing.T) {
 	repo, mock, db := newTestRepo(t)
 	defer db.Close()
 	userId := uuid.New()
-	query := regexp.QuoteMeta(`select * from avatar where user_id = $1`)
+	query := regexp.QuoteMeta(`select public_id, url, user_id from avatar where user_id = $1`)
 	t.Run("success", func(t *testing.T) {
 		rows := sqlmock.NewRows([]string{"public_id", "url", "user_id"}).AddRow("pid", "url", userId)
 		mock.ExpectQuery(query).WithArgs(userId).WillReturnRows(rows)
@@ -203,21 +203,27 @@ func TestAuthRepository_InsertToken(t *testing.T) {
 	queryDelete := regexp.QuoteMeta(`delete from tokens where user_id = $1 and scope = $2`)
 	queryInsert := regexp.QuoteMeta(`insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at) values ($1, $2, $3, $4, $5, $6)`)
 	t.Run("success", func(t *testing.T) {
+		mock.ExpectBegin()
 		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, token.Scope, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectCommit()
 		err := repo.InsertToken(token, userID)
 		assert.NoError(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("delete error", func(t *testing.T) {
+		mock.ExpectBegin()
 		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnError(errors.New("delete error"))
+		mock.ExpectRollback()
 		err := repo.InsertToken(token, userID)
 		assert.Error(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("insert error", func(t *testing.T) {
+		mock.ExpectBegin()
 		mock.ExpectExec(queryDelete).WithArgs(userID, token.Scope).WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec(queryInsert).WithArgs(token.Hash, token.Expiry, userID, token.Scope, sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnError(errors.New("insert error"))
+		mock.ExpectRollback()
 		err := repo.InsertToken(token, userID)
 		assert.Error(t, err)
 		assert.NoError(t, mock.ExpectationsWereMet())
@@ -282,7 +288,7 @@ func TestAuthRepository_FetchUserById(t *testing.T) {
 	repo, mock, db := newTestRepo(t)
 	defer db.Close()
 	id := uuid.New()
-	query := regexp.QuoteMeta(`select * from users where user_id = $1`)
+	query := regexp.QuoteMeta(`select user_id, name, email, password, role, created_at from users where user_id = $1`)
 	t.Run("success", func(t *testing.T) {
 		rows := sqlmock.NewRows([]string{"user_id", "name", "email", "password", "role", "created_at"}).
 			AddRow(id, "User", "user@example.com", "password", "admin", time.Now())
@@ -326,7 +332,7 @@ func TestAuthRepository_FetchAllUsers(t *testing.T) {
 	repo, mock, db := newTestRepo(t)
 	defer db.Close()
 
-	query := regexp.QuoteMeta(`select * from users`)
+	query := regexp.QuoteMeta(`select user_id, name, email, password, role, created_at from users`)
 
 	t.Run("success", func(t *testing.T) {
 		rows := sqlmock.NewRows([]string{"user_id", "name", "email", "password", "role", "created_at"}).

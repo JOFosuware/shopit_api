@@ -39,12 +39,11 @@ func (h *AuthHandlers) AuthRouter() http.Handler {
 	mux.Post("/password/forgot", h.SendPasswordResetEmail)
 	mux.Put("/password/reset/{token}", h.ResetPassword)
 
-	mux.Get("/logout/{token}", h.Logout)
-
 	mux.Group(func(r chi.Router) {
 		r.Use(utils.IsAuthenticated)
 
 		r.Get("/me", h.GetUserProfile)
+		r.Post("/logout", h.Logout)
 		r.Put("/password/update", h.UpdatePassword)
 		r.Put("/me/update", h.UpdateProfile)
 

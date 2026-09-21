@@ -79,6 +79,42 @@ func (r *AuthRepository) UpdateUser(u models.User) error {
 	return nil
 }
 
+// UpdatePasswordAndReplaceToken atomically persists a password change and rotates
+// authentication credentials. When revokeResetTokens is true, all reset tokens for
+// the user are consumed in the same transaction.
+func (r *AuthRepository) UpdatePasswordAndReplaceToken(u models.User, t *models.Token, revokeResetTokens bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	const updateUserQuery = `update users set name = $1, email = $2, password = $3, role = $4 where user_id = $5`
+	if _, err = tx.ExecContext(ctx, updateUserQuery, u.Name, u.Email, u.Password, u.Role, u.ID); err != nil {
+		return err
+	}
+
+	if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, "authentication"); err != nil {
+		return err
+	}
+	if revokeResetTokens {
+		if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, "password_reset"); err != nil {
+			return err
+		}
+	}
+
+	now := time.Now()
+	const insertTokenQuery = `insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at) values ($1, $2, $3, $4, $5, $6)`
+	if _, err = tx.ExecContext(ctx, insertTokenQuery, t.Hash, t.Expiry, u.ID, t.Scope, now, now); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // InsertAvatar inserts a new avatar record for a user.
 func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -94,9 +130,9 @@ func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 		returning public_id, url, user_id
 	`
 	err := r.DB.QueryRowContext(ctx, query,
-		&a.PublicId,
-		&a.Url,
-		&a.UserId,
+		a.PublicId,
+		a.Url,
+		a.UserId,
 	).Scan(
 		&avatar.PublicId,
 		&avatar.Url,
@@ -118,7 +154,7 @@ func (r *AuthRepository) FetchAvatarById(userId uuid.UUID) (models.Avatar, error
 	var a models.Avatar
 
 	query := `
-			select * from avatar where user_id = $1
+			select public_id, url, user_id from avatar where user_id = $1
 	`
 	err := r.DB.QueryRowContext(ctx, query, userId).Scan(
 		&a.PublicId,
@@ -194,9 +230,15 @@ func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
 func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	// delete existing tokens of the same scope for this user (allow auth and reset tokens to coexist)
 	query := `delete from tokens where user_id = $1 and scope = $2`
-	_, err := r.DB.ExecContext(ctx, query, userID, t.Scope)
+	_, err = tx.ExecContext(ctx, query, userID, t.Scope)
 	if err != nil {
 		return err
 	}
@@ -204,7 +246,7 @@ func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 	query = `insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at)
 			values ($1, $2, $3, $4, $5, $6)`
 
-	_, err = r.DB.ExecContext(ctx, query,
+	_, err = tx.ExecContext(ctx, query,
 		t.Hash,
 		t.Expiry,
 		userID,
@@ -217,7 +259,7 @@ func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // FetchTokenById fetches a token by user ID.
@@ -287,7 +329,7 @@ func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
 
 	var user models.User
 
-	query := `select * from users where user_id = $1`
+	query := `select user_id, name, email, password, role, created_at from users where user_id = $1`
 
 	err := r.DB.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
@@ -361,12 +403,13 @@ func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 
 	var users []*models.User
 
-	query := `select * from users`
+	query := `select user_id, name, email, password, role, created_at from users`
 
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var user models.User
@@ -384,9 +427,9 @@ func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 
 		users = append(users, &user)
 
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return users, nil

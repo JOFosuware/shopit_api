@@ -5,8 +5,8 @@ package delivery
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -58,6 +58,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	v := validator.New()
 	v.Check(name != "", "name", "user name must be provided")
 	v.Check(email != "", "email", "user email must be provided")
+	v.IsEmailValid(email, "email", "user email must be valid")
 	v.Check(len(password) > 7, "password", "password must be at least 8 characters")
 	v.Check(avatar != "", "avatar", "user avatar must be provided")
 
@@ -199,6 +200,7 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	// validate data
 	v := validator.New()
 	v.Check(password != "", "password", "password must be provided")
+	v.Check(len(password) > 7, "password", "password must be at least 8 characters")
 	v.Check(confirm != "", "confirmPassword", "confirm password must be provided")
 
 	if !v.Valid() {
@@ -208,7 +210,7 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if password != confirm {
-		_ = utils.BadRequest(w, r, errors.New("passwors mismatch"))
+		_ = utils.BadRequest(w, r, errors.New("passwords do not match"))
 		h.logger.Info("Passwords mismatch")
 		return
 	}
@@ -287,6 +289,7 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	// validate data
 	v := validator.New()
 	v.Check(password != "", "password", "password must be provided")
+	v.Check(len(password) > 7, "password", "password must be at least 8 characters")
 	v.Check(oldPassword != "", "oldPassword", "old password must be provided")
 
 	if !v.Valid() {
@@ -388,11 +391,11 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // Endpoint: POST /api/v1/auth/logout
 // Expects URL param: token.
 func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
-	t := chi.URLParam(r, "token")
+	t := bearerToken(r)
 
 	if t == "" {
-		_ = utils.BadRequest(w, r, errors.New("token must be provided"))
-		h.logger.Error("token must be provided")
+		_ = utils.BadRequest(w, r, errors.New("authorization bearer token must be provided"))
+		h.logger.Error("authorization bearer token must be provided")
 		return
 	}
 
@@ -420,6 +423,14 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 		h.logger.Errorf("error writing json: %v", err)
 		return
 	}
+}
+
+func bearerToken(r *http.Request) string {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return parts[1]
 }
 
 // GetAllUsers returns all users (admin).
@@ -531,12 +542,12 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	email := r.Form.Get("email")
 	role := r.Form.Get("role")
 
-	fmt.Printf("Name: %s and email: %s", name, email)
-
 	v := validator.New()
 
 	v.Check(name != "", "name", "user name must be provided")
 	v.Check(email != "", "email", "user email must be provided")
+	v.IsEmailValid(email, "email", "user email must be valid")
+	v.Check(role == "admin" || role == "user", "role", "role must be either admin or user")
 
 	if !v.Valid() {
 		_ = utils.BadRequest(w, r, errors.New("invalid input"))

@@ -45,6 +45,9 @@ smtp:
   Username: "your_smtp_username"
   Password: "your_smtp_password"
 
+frontend: "http://localhost:3000"
+email_from: "ShopIT <noreply@example.com>"
+
 cloudinary:
   Name: "your_cloudinary_cloud_name"
   Key: "your_cloudinary_api_key"

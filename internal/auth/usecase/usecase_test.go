@@ -6,6 +6,7 @@
 package usecase_test
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"testing"
@@ -33,7 +34,7 @@ func newTestAuthUC(t *testing.T) (*usecase.AuthUC, *mockCloudinary.CloudUploader
 	mToken := mockToken.NewTokener(t)
 	mBcrypt := mockBcrypt.NewEncryptor(t)
 	mail := mockMail.NewMailer(t)
-	return usecase.NewAuthUC(cld, repo, mToken, mBcrypt, mail), cld, repo, mToken, mBcrypt, mail
+	return usecase.NewAuthUC(cld, repo, mToken, mBcrypt, mail, "https://app.example.test", "ShopIT <noreply@example.test>"), cld, repo, mToken, mBcrypt, mail
 }
 
 // TestAuthUC_Register tests the Register use case for all success and error scenarios.
@@ -43,7 +44,7 @@ func TestAuthUC_Register(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		u := models.User{ID: uuid.New(), Name: "test", Email: "user@gmail.com", Password: "userPassword", Role: "user"}
 		cld.On("UploadToCloud", "avatar", "test").Return(&uploader.UploadResult{PublicID: "pid", URL: "url"}, nil)
-		repo.On("FetchUserByEmail", u.Email).Return(&models.User{}, errors.New("sql: no rows in result set")).Once()
+		repo.On("FetchUserByEmail", u.Email).Return(&models.User{}, sql.ErrNoRows).Once()
 		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte(u.Password), nil).Once()
 		repo.On("InsertUser", u).Return(&u, nil).Once()
 		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{PlainText: "tok"}, nil).Once()
@@ -64,7 +65,7 @@ func TestAuthUC_Register(t *testing.T) {
 
 	t.Run("Error hashing password", func(t *testing.T) {
 		u := models.User{ID: uuid.New(), Name: "test", Email: "user@gmail.com", Password: "userPassword", Role: "user"}
-		repo.On("FetchUserByEmail", u.Email).Return(&models.User{}, errors.New("sql: no rows in result set")).Once()
+		repo.On("FetchUserByEmail", u.Email).Return(&models.User{}, sql.ErrNoRows).Once()
 		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return(nil, errors.New("hash error")).Once()
 		res, err := a.Register(u, "test")
 		assert.Error(t, err)
@@ -130,6 +131,7 @@ func TestAuthUC_SendPasswordResetEmail(t *testing.T) {
 		tok := &models.Token{PlainText: "tok"}
 		mToken.On("GenerateToken", u.ID, 60*time.Minute, token.ScopePasswordReset).Return(tok, nil).Once()
 		mail.On("SendMail", mock.Anything, u.Email, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("mail error")).Once()
+		repo.On("InsertToken", tok, u.ID).Return(nil).Once()
 		res, err := a.SendPasswordResetEmail(u.Email, req)
 		assert.Error(t, err)
 		assert.Nil(t, res)
@@ -168,7 +170,6 @@ func TestAuthUC_ResetPassword(t *testing.T) {
 		repo.On("FetchUserByTokenWithScope", "token", token.ScopePasswordReset).Return(&u, nil).Once()
 		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte("verySecret"), nil).Once()
 		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{}, nil).Once()
-		repo.On("InsertToken", &models.Token{}, u.ID).Return(nil).Once()
 		repo.On("UpdateUser", u).Return(errors.New("update error")).Once()
 		res, err := a.ResetPassword("token", u.Password)
 		assert.Error(t, err)
@@ -194,7 +195,6 @@ func TestUpdatedPassword(t *testing.T) {
 		mBcrypt.On("GenerateFromPassword", []byte(passwords.Password)).Return([]byte(passwords.Password), nil)
 		repo.On("UpdateUser", models.User{ID: u.ID, Password: "newPassword"}).Return(nil)
 		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{}, nil)
-		repo.On("InsertToken", &models.Token{}, u.ID).Return(nil)
 		res, err := a.UpdatePassword(u.ID, passwords)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
