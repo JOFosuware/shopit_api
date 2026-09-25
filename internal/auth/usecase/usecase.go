@@ -228,14 +228,18 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 		return nil, err
 	}
 
-	// generate new token
+	// generate a fresh authentication token after successful password reset
 	t, err := a.token.GenerateToken(user.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
 		return nil, err
 	}
 
 	user.Password = string(hashedPassword)
-	err = a.repo.UpdatePasswordAndReplaceToken(*user, t, true)
+	if err = a.repo.InsertToken(t, user.ID); err != nil {
+		return nil, err
+	}
+
+	err = a.repo.UpdateUser(*user)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +283,11 @@ func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*
 	}
 
 	user.Password = string(hashedPassword)
-	err = a.repo.UpdatePasswordAndReplaceToken(*user, t, false)
+	if err = a.repo.InsertToken(t, user.ID); err != nil {
+		return nil, err
+	}
+
+	err = a.repo.UpdateUser(*user)
 	if err != nil {
 		return nil, err
 	}
