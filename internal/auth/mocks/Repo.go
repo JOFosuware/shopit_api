@@ -14,6 +14,18 @@ type Repo struct {
 	mock.Mock
 }
 
+// DeleteAuthenticationToken provides a mock function with given fields: ctx, plainTextToken
+func (_m *Repo) DeleteAuthenticationToken(ctx context.Context, plainTextToken string) error {
+	ret := _m.Called(ctx, plainTextToken)
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAuthenticationToken")
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		return rf(ctx, plainTextToken)
+	}
+	return ret.Error(0)
+}
+
 // DeleteAvatar provides a mock function with no fields
 func (_m *Repo) DeleteAvatar() error {
 	ret := _m.Called()
@@ -33,16 +45,16 @@ func (_m *Repo) DeleteAvatar() error {
 }
 
 // DeleteAvatarById provides a mock function with given fields: id
-func (_m *Repo) DeleteAvatarById(id string) error {
-	ret := _m.Called(id)
+func (_m *Repo) DeleteAvatarById(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteAvatarById")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -69,16 +81,16 @@ func (_m *Repo) DeleteTokenById(userId uuid.UUID) error {
 }
 
 // DeleteUserById provides a mock function with given fields: id
-func (_m *Repo) DeleteUserById(id uuid.UUID) error {
-	ret := _m.Called(id)
+func (_m *Repo) DeleteUserById(ctx context.Context, id uuid.UUID) error {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteUserById")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) error); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -105,28 +117,28 @@ func (_m *Repo) DeleteUsers() error {
 }
 
 // FetchAllUsers provides a mock function with no fields
-func (_m *Repo) FetchAllUsers() ([]*models.User, error) {
-	ret := _m.Called()
+func (_m *Repo) FetchAllUsers(ctx context.Context) ([]*models.UserPublic, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchAllUsers")
 	}
 
-	var r0 []*models.User
+	var r0 []*models.UserPublic
 	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]*models.User, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*models.UserPublic, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() []*models.User); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) []*models.UserPublic); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*models.User)
+			r0 = ret.Get(0).([]*models.UserPublic)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -135,8 +147,8 @@ func (_m *Repo) FetchAllUsers() ([]*models.User, error) {
 }
 
 // FetchAvatarById provides a mock function with given fields: userId
-func (_m *Repo) FetchAvatarById(userId uuid.UUID) (models.Avatar, error) {
-	ret := _m.Called(userId)
+func (_m *Repo) FetchAvatarById(ctx context.Context, userId uuid.UUID) (models.Avatar, error) {
+	ret := _m.Called(ctx, userId)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchAvatarById")
@@ -144,17 +156,17 @@ func (_m *Repo) FetchAvatarById(userId uuid.UUID) (models.Avatar, error) {
 
 	var r0 models.Avatar
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) (models.Avatar, error)); ok {
-		return rf(userId)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (models.Avatar, error)); ok {
+		return rf(ctx, userId)
 	}
-	if rf, ok := ret.Get(0).(func(uuid.UUID) models.Avatar); ok {
-		r0 = rf(userId)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) models.Avatar); ok {
+		r0 = rf(ctx, userId)
 	} else {
 		r0 = ret.Get(0).(models.Avatar)
 	}
 
-	if rf, ok := ret.Get(1).(func(uuid.UUID) error); ok {
-		r1 = rf(userId)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, userId)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -193,8 +205,8 @@ func (_m *Repo) FetchTokenById(id uuid.UUID) (*models.Token, error) {
 }
 
 // FetchUserByEmail provides a mock function with given fields: email
-func (_m *Repo) FetchUserByEmail(email string) (*models.User, error) {
-	ret := _m.Called(email)
+func (_m *Repo) FetchUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	ret := _m.Called(ctx, email)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchUserByEmail")
@@ -202,19 +214,19 @@ func (_m *Repo) FetchUserByEmail(email string) (*models.User, error) {
 
 	var r0 *models.User
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (*models.User, error)); ok {
-		return rf(email)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.User, error)); ok {
+		return rf(ctx, email)
 	}
-	if rf, ok := ret.Get(0).(func(string) *models.User); ok {
-		r0 = rf(email)
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.User); ok {
+		r0 = rf(ctx, email)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.User)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(email)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, email)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -223,8 +235,8 @@ func (_m *Repo) FetchUserByEmail(email string) (*models.User, error) {
 }
 
 // FetchUserById provides a mock function with given fields: id
-func (_m *Repo) FetchUserById(id uuid.UUID) (*models.User, error) {
-	ret := _m.Called(id)
+func (_m *Repo) FetchUserById(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchUserById")
@@ -232,19 +244,19 @@ func (_m *Repo) FetchUserById(id uuid.UUID) (*models.User, error) {
 
 	var r0 *models.User
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) (*models.User, error)); ok {
-		return rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (*models.User, error)); ok {
+		return rf(ctx, id)
 	}
-	if rf, ok := ret.Get(0).(func(uuid.UUID) *models.User); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) *models.User); ok {
+		r0 = rf(ctx, id)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.User)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uuid.UUID) error); ok {
-		r1 = rf(id)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -283,8 +295,8 @@ func (_m *Repo) FetchUserByToken(token string) (*models.User, error) {
 }
 
 // FetchUserByTokenWithScope provides a mock function with given fields: token, scope
-func (_m *Repo) FetchUserByTokenWithScope(token string, scope string) (*models.User, error) {
-	ret := _m.Called(token, scope)
+func (_m *Repo) FetchUserByTokenWithScope(ctx context.Context, token string, scope string) (*models.User, error) {
+	ret := _m.Called(ctx, token, scope)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FetchUserByTokenWithScope")
@@ -292,19 +304,19 @@ func (_m *Repo) FetchUserByTokenWithScope(token string, scope string) (*models.U
 
 	var r0 *models.User
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*models.User, error)); ok {
-		return rf(token, scope)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*models.User, error)); ok {
+		return rf(ctx, token, scope)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *models.User); ok {
-		r0 = rf(token, scope)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *models.User); ok {
+		r0 = rf(ctx, token, scope)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.User)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(token, scope)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, token, scope)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -369,16 +381,16 @@ func (_m *Repo) InsertAvatar(avatar *models.Avatar) (models.Avatar, error) {
 }
 
 // InsertToken provides a mock function with given fields: t, userID
-func (_m *Repo) InsertToken(t *models.Token, userID uuid.UUID) error {
-	ret := _m.Called(t, userID)
+func (_m *Repo) InsertToken(ctx context.Context, t *models.Token, userID uuid.UUID) error {
+	ret := _m.Called(ctx, t, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for InsertToken")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*models.Token, uuid.UUID) error); ok {
-		r0 = rf(t, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.Token, uuid.UUID) error); ok {
+		r0 = rf(ctx, t, userID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -417,16 +429,16 @@ func (_m *Repo) InsertUser(user models.User) (*models.User, error) {
 }
 
 // UpdateUser provides a mock function with given fields: user
-func (_m *Repo) UpdateUser(user models.User) error {
-	ret := _m.Called(user)
+func (_m *Repo) UpdateUser(ctx context.Context, user models.User) error {
+	ret := _m.Called(ctx, user)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateUser")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(models.User) error); ok {
-		r0 = rf(user)
+	if rf, ok := ret.Get(0).(func(context.Context, models.User) error); ok {
+		r0 = rf(ctx, user)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -435,15 +447,27 @@ func (_m *Repo) UpdateUser(user models.User) error {
 }
 
 // UpdatePasswordAndReplaceToken provides a mock function with given fields: user, token, revokeResetTokens
-func (_m *Repo) UpdatePasswordAndReplaceToken(user models.User, token *models.Token, revokeResetTokens bool) error {
-	ret := _m.Called(user, token, revokeResetTokens)
+func (_m *Repo) UpdatePasswordAndReplaceToken(ctx context.Context, user models.User, token *models.Token, revokeResetTokens bool) error {
+	ret := _m.Called(ctx, user, token, revokeResetTokens)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdatePasswordAndReplaceToken")
 	}
 
-	if rf, ok := ret.Get(0).(func(models.User, *models.Token, bool) error); ok {
-		return rf(user, token, revokeResetTokens)
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, *models.Token, bool) error); ok {
+		return rf(ctx, user, token, revokeResetTokens)
+	}
+	return ret.Error(0)
+}
+
+// UpdateProfile provides a mock function with given fields: ctx, userID, name, email, avatar
+func (_m *Repo) UpdateProfile(ctx context.Context, userID uuid.UUID, name string, email string, avatar *models.Avatar) error {
+	ret := _m.Called(ctx, userID, name, email, avatar)
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateProfile")
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, string, string, *models.Avatar) error); ok {
+		return rf(ctx, userID, name, email, avatar)
 	}
 	return ret.Error(0)
 }

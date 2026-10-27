@@ -21,10 +21,10 @@ import (
 //   - POST   /login                   → Login a user
 //   - POST   /password/forgot         → Send password reset email
 //   - PUT    /password/reset/{token}  → Reset password with token
-//   - GET    /logout/{token}          → Logout user (delete token)
 //
-// Authenticated routes (require IsAuthenticated middleware):
+// Authenticated routes require a valid authentication-scope bearer token.
 //   - GET    /me                      → Get current user profile
+//   - POST   /logout                  → Logout user (revoke presented token)
 //   - PUT    /password/update         → Update current user password
 //   - PUT    /me/update               → Update current user profile
 //   - GET    /admin/users             → Get all users (admin)
@@ -40,7 +40,7 @@ func (h *AuthHandlers) AuthRouter() http.Handler {
 	mux.Put("/password/reset/{token}", h.ResetPassword)
 
 	mux.Group(func(r chi.Router) {
-		r.Use(utils.IsAuthenticated)
+		r.Use(h.authenticate)
 
 		r.Get("/me", h.GetUserProfile)
 		r.Post("/logout", h.Logout)

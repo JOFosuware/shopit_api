@@ -1,48 +1,50 @@
 package auth
 
 import (
-	"net/http"
-
+	"context"
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
 )
 
 type AuthenticateUC interface {
+	// Authenticate resolves an unexpired authentication token to its user.
+	Authenticate(ctx context.Context, token string) (*models.User, error)
+
 	// Register signup a user
-	Register(user models.User, avatar string) (*models.UserResponse, error)
+	Register(ctx context.Context, user models.User, avatar string) (*models.UserResponse, error)
 
 	// Login login a user
-	Login(email, password string) (*models.UserResponse, error)
+	Login(ctx context.Context, email, password string) (*models.UserResponse, error)
 
 	// SendPasswordResetEmail process password and email reset
-	SendPasswordResetEmail(email string, r *http.Request) (*models.Response, error)
+	SendPasswordResetEmail(ctx context.Context, email string) (*models.Response, error)
 
 	// ResetPassword reset password
-	ResetPassword(token, password string) (*models.UserResponse, error)
+	ResetPassword(ctx context.Context, token, password string) (*models.UserResponse, error)
 
 	// UpdatePassword update password for a user by id
-	UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error)
+	UpdatePassword(ctx context.Context, userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error)
 
 	// UpdateProfile update a user profile, returns error on failure
-	UpdateProfile(user models.User, avatar string) error
+	UpdateProfile(ctx context.Context, user models.User, avatar string) error
 
 	// GetAllUsers fetches public user data for the authenticated caller.
-	GetAllUsers(actor *models.User) ([]*models.UserPublic, error)
+	GetAllUsers(ctx context.Context, actor *models.User) ([]*models.UserPublic, error)
 
 	// GetUserDetails fetches public user data based on the provided userID.
 	// The `actor` is the authenticated caller.
-	GetUserDetails(actor *models.User, userID uuid.UUID) (*models.UserPublic, error)
+	GetUserDetails(ctx context.Context, actor *models.User, userID uuid.UUID) (*models.UserPublic, error)
 
 	// UpdateUser updates the user data in the database based on the provided userID and returns
 	// a pointer to the updated UserResponse struct or an error if any occurs during the process.
 	// The `actor` is the authenticated caller.
-	UpdateUser(actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error)
+	UpdateUser(ctx context.Context, actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error)
 
 	// DeleteUser deletes the user data from the database based on the provided userID and returns
 	// an error if any occurs during the process. The `actor` is the authenticated caller.
-	DeleteUser(actor *models.User, userID uuid.UUID) error
+	DeleteUser(ctx context.Context, actor *models.User, userID uuid.UUID) error
 
 	// DeleteUserToken deletes the user token from the database based on the provided userID and returns an error
 	// if any occurs during the process.
-	DeleteUserToken(token string) error
+	DeleteUserToken(ctx context.Context, token string) error
 }

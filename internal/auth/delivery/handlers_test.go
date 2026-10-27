@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jofosuware/go/shopit/internal/auth"
 	"github.com/jofosuware/go/shopit/internal/auth/delivery"
 	mockAuth "github.com/jofosuware/go/shopit/internal/auth/mocks"
 	"github.com/jofosuware/go/shopit/internal/models"
@@ -94,7 +95,7 @@ func TestRegister(t *testing.T) {
 			avatar:     "someImage.jpg",
 			mockReturn: nil,
 			mockError:  assert.AnError,
-			wantCode:   http.StatusBadRequest,
+			wantCode:   http.StatusInternalServerError,
 		},
 	}
 
@@ -105,7 +106,7 @@ func TestRegister(t *testing.T) {
 				req := httptest.NewRequest(http.MethodPost, "/register", nil)
 				req.Header.Set("Content-Type", "multipart/form-data; boundary=invalid")
 				rr := httptest.NewRecorder()
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
+				logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 				h.Register(rr, req)
 				assert.Equal(t, tt.wantCode, rr.Code)
 				logger.AssertExpectations(t)
@@ -124,8 +125,8 @@ func TestRegister(t *testing.T) {
 			}
 
 			if tt.name == "authUC.Register error" {
-				authUC.On("Register", u, tt.avatar).Return(nil, tt.mockError).Once()
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
+				authUC.On("Register", mock.Anything, u, tt.avatar).Return(nil, tt.mockError).Once()
+				logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 				h.Register(rr, req)
 				assert.Equal(t, tt.wantCode, rr.Code)
 				authUC.AssertExpectations(t)
@@ -134,10 +135,10 @@ func TestRegister(t *testing.T) {
 			}
 
 			if tt.mockError == nil {
-				authUC.On("Register", u, tt.avatar).Return(tt.mockReturn, nil).Once()
+				authUC.On("Register", mock.Anything, u, tt.avatar).Return(tt.mockReturn, nil).Once()
 			} else {
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
-				authUC.On("Register", u, tt.avatar).Return(nil, tt.mockError).Maybe()
+				logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
+				authUC.On("Register", mock.Anything, u, tt.avatar).Return(nil, tt.mockError).Maybe()
 			}
 
 			h.Register(rr, req)
@@ -171,13 +172,20 @@ func TestLogin(t *testing.T) {
 			expectUsecase: true,
 		},
 		{
-			name:          "Invalid credentials",
+			name:          "Incorrect password",
 			jsonData:      []byte(`{"email": "user@gmail.com", "password": "wrongpass"}`),
 			mockUser:      models.User{Email: "user@gmail.com", Password: "wrongpass"},
-			mockError:     assert.AnError,
-			wantCode:      http.StatusBadRequest,
+			mockError:     auth.ErrInvalidPassword,
+			wantCode:      http.StatusUnauthorized,
 			expectUsecase: true,
-			expectLogger:  true,
+		},
+		{
+			name:          "Unknown email",
+			jsonData:      []byte(`{"email": "missing@gmail.com", "password": "veryStrongPassword"}`),
+			mockUser:      models.User{Email: "missing@gmail.com", Password: "veryStrongPassword"},
+			mockError:     auth.ErrUserNotFound,
+			wantCode:      http.StatusUnauthorized,
+			expectUsecase: true,
 		},
 		{
 			name:         "Malformed JSON",
@@ -207,14 +215,21 @@ func TestLogin(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			if tt.expectUsecase {
-				authUC.On("Login", tt.mockUser.Email, tt.mockUser.Password).Return(tt.mockResp, tt.mockError).Once()
+				authUC.On("Login", mock.Anything, tt.mockUser.Email, tt.mockUser.Password).Return(tt.mockResp, tt.mockError).Once()
 			}
 			if tt.expectLogger {
-				logger.On("Errorf", mock.Anything, mock.Anything).Once()
+				logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 			}
 
 			h.Login(rr, req)
 			assert.Equal(t, tt.wantCode, rr.Code)
+			if tt.name == "Malformed JSON" {
+				assert.JSONEq(t, `{"success":false,"message":"invalid request"}`, rr.Body.String())
+				assert.NotContains(t, rr.Body.String(), "unexpected EOF")
+			}
+			if tt.wantCode == http.StatusUnauthorized {
+				assert.JSONEq(t, `{"success":false,"message":"invalid email or password"}`, rr.Body.String())
+			}
 
 			if tt.expectUsecase {
 				authUC.AssertExpectations(t)
@@ -235,10 +250,12 @@ func TestSendPasswordResetEmail(t *testing.T) {
 		req, err := http.NewRequest(http.MethodPost, "/send-password-reset-email", formData)
 		require.NoError(t, err)
 		rr := httptest.NewRecorder()
-		authUC.On("SendPasswordResetEmail", "user@gmail.com", req).Return(&models.Response{}, nil).Once()
+		authUC.On("SendPasswordResetEmail", mock.Anything, "user@gmail.com").Return(&models.Response{}, nil).Once()
 		req.Header.Set("Content-Type", ct)
 		h.SendPasswordResetEmail(rr, req)
-		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, http.StatusAccepted, rr.Code)
+		assert.Contains(t, rr.Body.String(), "If an account exists")
+		assert.NotContains(t, rr.Body.String(), "user@gmail.com")
 		authUC.AssertExpectations(t)
 	})
 
@@ -248,7 +265,7 @@ func TestSendPasswordResetEmail(t *testing.T) {
 		require.NoError(t, err)
 		rr := httptest.NewRecorder()
 		req.Header.Set("Content-Type", ct)
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.SendPasswordResetEmail(rr, req)
 		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
@@ -259,7 +276,7 @@ func TestSendPasswordResetEmail(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/send-password-reset-email", nil)
 		req.Header.Set("Content-Type", "multipart/form-data; boundary=invalid")
 		rr := httptest.NewRecorder()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.SendPasswordResetEmail(rr, req)
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		logger.AssertExpectations(t)
@@ -271,10 +288,10 @@ func TestSendPasswordResetEmail(t *testing.T) {
 		require.NoError(t, err)
 		rr := httptest.NewRecorder()
 		req.Header.Set("Content-Type", ct)
-		authUC.On("SendPasswordResetEmail", "user@gmail.com", req).Return(nil, assert.AnError).Once()
+		authUC.On("SendPasswordResetEmail", mock.Anything, "user@gmail.com").Return(nil, assert.AnError).Once()
 		logger.On("Errorf", mock.Anything, mock.Anything).Once()
 		h.SendPasswordResetEmail(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusAccepted, rr.Code)
 		authUC.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -298,7 +315,7 @@ func TestResetPassword(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 		rr := httptest.NewRecorder()
-		authUC.On("ResetPassword", "dummy-token", "verySecret").Return(&models.UserResponse{}, nil).Once()
+		authUC.On("ResetPassword", mock.Anything, "dummy-token", "verySecret").Return(&models.UserResponse{}, nil).Once()
 		h.ResetPassword(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 		authUC.AssertExpectations(t)
@@ -317,7 +334,7 @@ func TestResetPassword(t *testing.T) {
 		rr := httptest.NewRecorder()
 		logger.On("Info", mock.Anything).Once()
 		h.ResetPassword(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
 	})
 
@@ -328,7 +345,7 @@ func TestResetPassword(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 		rr := httptest.NewRecorder()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.ResetPassword(rr, req)
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		logger.AssertExpectations(t)
@@ -344,7 +361,7 @@ func TestResetPassword(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 		rr := httptest.NewRecorder()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.ResetPassword(rr, req)
 		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
@@ -360,7 +377,7 @@ func TestResetPassword(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 		rr := httptest.NewRecorder()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.ResetPassword(rr, req)
 		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
@@ -377,10 +394,10 @@ func TestResetPassword(t *testing.T) {
 		rCtx.URLParams.Add("token", "dummy-token")
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 		rr := httptest.NewRecorder()
-		authUC.On("ResetPassword", "dummy-token", "verySecret").Return(nil, assert.AnError).Once()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		authUC.On("ResetPassword", mock.Anything, "dummy-token", "verySecret").Return(nil, assert.AnError).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.ResetPassword(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		authUC.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -409,7 +426,7 @@ func TestGetUserProfile(t *testing.T) {
 			Role:   u.Role,
 			Avatar: u.Avatar,
 		}
-		authUC.On("GetUserDetails", &u, u.ID).Return(publicUser, nil).Once()
+		authUC.On("GetUserDetails", mock.Anything, &u, u.ID).Return(publicUser, nil).Once()
 		h.GetUserProfile(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.NotContains(t, rr.Body.String(), u.Password)
@@ -424,7 +441,7 @@ func TestGetUserProfile(t *testing.T) {
 		rr := httptest.NewRecorder()
 		logger.On("Error", mock.Anything).Once()
 		h.GetUserProfile(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		logger.AssertExpectations(t)
 	})
 
@@ -440,10 +457,10 @@ func TestGetUserProfile(t *testing.T) {
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
-		authUC.On("GetUserDetails", &u, u.ID).Return(nil, assert.AnError).Once()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		authUC.On("GetUserDetails", mock.Anything, &u, u.ID).Return(nil, assert.AnError).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.GetUserProfile(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		authUC.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -470,7 +487,7 @@ func TestUpdatePassword(t *testing.T) {
 		user := models.User{ID: uuid.New()}
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
-		authUC.On("UpdatePassword", user.ID, passwords).Return(&models.UserResponse{}, nil).Once()
+		authUC.On("UpdatePassword", mock.Anything, user.ID, passwords).Return(&models.UserResponse{}, nil).Once()
 		h.UpdatePassword(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 		authUC.AssertExpectations(t)
@@ -486,7 +503,7 @@ func TestUpdatePassword(t *testing.T) {
 		rr := httptest.NewRecorder()
 		logger.On("Error", mock.Anything).Once()
 		h.UpdatePassword(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		logger.AssertExpectations(t)
 	})
 
@@ -501,7 +518,7 @@ func TestUpdatePassword(t *testing.T) {
 		user := models.User{ID: uuid.New()}
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.UpdatePassword(rr, req)
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		logger.AssertExpectations(t)
@@ -517,7 +534,7 @@ func TestUpdatePassword(t *testing.T) {
 		user := models.User{ID: uuid.New()}
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.UpdatePassword(rr, req)
 		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
@@ -533,7 +550,7 @@ func TestUpdatePassword(t *testing.T) {
 		user := models.User{ID: uuid.New()}
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.UpdatePassword(rr, req)
 		assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
 		logger.AssertExpectations(t)
@@ -554,10 +571,10 @@ func TestUpdatePassword(t *testing.T) {
 			OldPassword: "verySecretOld",
 			Password:    "verySecret",
 		}
-		authUC.On("UpdatePassword", user.ID, passwords).Return(nil, assert.AnError).Once()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		authUC.On("UpdatePassword", mock.Anything, user.ID, passwords).Return(nil, assert.AnError).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 		h.UpdatePassword(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		authUC.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})
@@ -587,7 +604,7 @@ func TestUpdateProfile(t *testing.T) {
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
 
-		authUC.On("UpdateProfile", u, "newAvatar.jpg").Return(nil).Once()
+		authUC.On("UpdateProfile", mock.Anything, u, "newAvatar.jpg").Return(nil).Once()
 		h.UpdateProfile(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
 		authUC.AssertExpectations(t)
@@ -609,7 +626,7 @@ func TestUpdateProfile(t *testing.T) {
 		logger.On("Error", mock.Anything).Once()
 
 		h.UpdateProfile(rr, req)
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		logger.AssertExpectations(t)
 	})
 
@@ -627,7 +644,7 @@ func TestUpdateProfile(t *testing.T) {
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 
 		h.UpdateProfile(rr, req)
 
@@ -656,7 +673,7 @@ func TestUpdateProfile(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 
 		h.UpdateProfile(rr, req)
 
@@ -686,7 +703,7 @@ func TestUpdateProfile(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 
 		h.UpdateProfile(rr, req)
 
@@ -716,12 +733,12 @@ func TestUpdateProfile(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		authUC.On("UpdateProfile", mock.Anything, mock.Anything).Return(assert.AnError).Once()
-		logger.On("Errorf", mock.Anything, mock.Anything).Once()
+		authUC.On("UpdateProfile", mock.Anything, mock.Anything, mock.Anything).Return(assert.AnError).Once()
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Once()
 
 		h.UpdateProfile(rr, req)
 
-		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		authUC.AssertExpectations(t)
 		logger.AssertExpectations(t)
 	})

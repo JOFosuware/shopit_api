@@ -44,8 +44,7 @@ func NewAuthHandlers(
 func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(100000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("parsing multipart form error: %v", err)
+		h.writeBadRequest(w, "parsing registration form", err)
 		return
 	}
 
@@ -63,8 +62,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	v.Check(avatar != "", "avatar", "user avatar must be provided")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating registration", v.Errors)
 		return
 	}
 
@@ -75,20 +73,22 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		Role:     "user",
 	}
 
-	res, err := h.authUC.Register(u, avatar)
+	res, err := h.authUC.Register(r.Context(), u, avatar)
 	if err != nil {
-		if errors.Is(err, auth.ErrUserAlreadyExists) {
-			_ = utils.BadRequest(w, r, errors.New("user already exists"))
-		} else {
-			_ = utils.BadRequest(w, r, errors.New("error registering user"))
+		switch {
+		case errors.Is(err, auth.ErrUserAlreadyExists):
+			h.writeError(w, http.StatusConflict, "user already exists")
+			h.logger.Errorf("registering user: %v", err)
+		case errors.Is(err, auth.ErrAvatarUploadFailed):
+			h.logger.Errorf("uploading registration avatar: %v", err)
+			h.writeError(w, http.StatusBadGateway, "failed to upload avatar")
+		default:
+			h.writeInternalError(w, "registering user", err)
 		}
-		h.logger.Errorf("Error registering user: %v", err)
 		return
 	}
 
-	if err := utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("writing json error: %v", err)
+	if err := h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 
@@ -106,8 +106,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	// Parse JSON into a dedicated login request payload rather than a full user model.
 	err := utils.ReadJSON(w, r, &req)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("reading json error: %v", err)
+		h.writeBadRequest(w, "reading login request", err)
 		return
 	}
 
@@ -117,27 +116,21 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	v.Check(len(req.Password) > 7, "password", "password must be at least 8 characters")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating login", v.Errors)
 		return
 	}
 
-	res, err := h.authUC.Login(req.Email, req.Password)
+	res, err := h.authUC.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, auth.ErrUserNotFound) {
-			_ = utils.BadRequest(w, r, errors.New("user not found"))
-		} else if errors.Is(err, auth.ErrInvalidPassword) {
-			_ = utils.BadRequest(w, r, errors.New("invalid password"))
-		} else {
-			_ = utils.BadRequest(w, r, errors.New("error logging in user"))
+		if errors.Is(err, auth.ErrUserNotFound) || errors.Is(err, auth.ErrInvalidPassword) {
+			h.writeError(w, http.StatusUnauthorized, "invalid email or password")
+			return
 		}
-		h.logger.Errorf("Error logging in user: %v", err)
+		h.writeInternalError(w, "logging in user", err)
 		return
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 
@@ -149,8 +142,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) SendPasswordResetEmail(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("parsing form error: %v", err)
+		h.writeBadRequest(w, "parsing password-reset request", err)
 		return
 	}
 
@@ -159,38 +151,42 @@ func (h *AuthHandlers) SendPasswordResetEmail(w http.ResponseWriter, r *http.Req
 	// validate data
 	v := validator.New()
 	v.Check(email != "", "email", "user email must be provided")
+	v.IsEmailValid(email, "email", "user email must be valid")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating password-reset request", v.Errors)
 		return
 	}
 
-	res, err := h.authUC.SendPasswordResetEmail(email, r)
+	_, err = h.authUC.SendPasswordResetEmail(r.Context(), email)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("Error sending password reset email: %v", err)
-		return
+		h.logger.Errorf("processing password reset request: %v", err)
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	h.writePasswordResetAccepted(w)
 
 }
 
+func (h *AuthHandlers) writePasswordResetAccepted(w http.ResponseWriter) {
+	h.writeJSON(w, http.StatusAccepted, models.Response{
+		Success: true,
+		Message: "If an account exists for that email, password reset instructions will be sent.",
+	})
+}
+
 // ResetPassword resets a user's password using a reset token.
-// Endpoint: POST /api/v1/auth/password/reset/{token}
+// Endpoint: PUT /api/v1/auth/password/reset/{token}
 // Expects form data: password, confirmPassword.
 func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	t := chi.URLParam(r, "token")
+	if t == "" {
+		h.writeError(w, http.StatusBadRequest, "password reset token must be provided")
+		return
+	}
 
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("parsing form error: %v", err)
+		h.writeBadRequest(w, "parsing password-reset form", err)
 		return
 	}
 
@@ -204,27 +200,27 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	v.Check(confirm != "", "confirmPassword", "confirm password must be provided")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating password reset", v.Errors)
 		return
 	}
 
 	if password != confirm {
-		_ = utils.BadRequest(w, r, errors.New("passwords do not match"))
+		h.writeError(w, http.StatusUnprocessableEntity, "passwords do not match")
 		h.logger.Info("Passwords mismatch")
 		return
 	}
 
-	res, err := h.authUC.ResetPassword(t, password)
+	res, err := h.authUC.ResetPassword(r.Context(), t, password)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("password reset unsuccessful, try again later"))
-		h.logger.Errorf("Error resetting password: %v", err)
+		if errors.Is(err, auth.ErrTokenNotFound) {
+			h.writeError(w, http.StatusBadRequest, "password reset link is invalid or expired")
+			return
+		}
+		h.writeInternalError(w, "resetting password", err)
 		return
 	}
 
-	if err := utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("writing json error: %v", err)
+	if err := h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
@@ -232,24 +228,23 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 // GetUserProfile returns the profile of the authenticated user.
 // Endpoint: GET /api/v1/auth/me
 func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
 	// Fetch user details
-	user, err := h.authUC.GetUserDetails(actor, actor.ID)
+	user, err := h.authUC.GetUserDetails(r.Context(), actor, actor.ID)
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
-			_ = utils.BadRequest(w, r, errors.New("user not found"))
-		} else if errors.Is(err, auth.ErrUserAccessDenied) {
-			_ = utils.BadRequest(w, r, errors.New("access denied"))
+			h.writeError(w, http.StatusNotFound, "user not found")
+		} else if errors.Is(err, auth.ErrUserAccessDenied) || errors.Is(err, auth.ErrForbidden) {
+			h.writeError(w, http.StatusForbidden, "access denied")
 		} else {
-			_ = utils.BadRequest(w, r, errors.New("error getting user details"))
+			h.writeInternalError(w, "getting user details", err)
 		}
-		h.logger.Errorf("error getting user details: %v", err)
 		return
 	}
 
@@ -258,28 +253,25 @@ func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		User:    *user,
 	}
 
-	if err := utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err := h.writeJSON(w, http.StatusOK, jr); err != nil {
 		return
 	}
 }
 
 // UpdatePassword updates the authenticated user's password.
-// Endpoint: POST /api/v1/auth/password/update
+// Endpoint: PUT /api/v1/auth/password/update
 // Expects form data: oldPassword, password.
 func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("parsing form error: %v", err)
+		h.writeBadRequest(w, "parsing password-update form", err)
 		return
 	}
 
@@ -293,8 +285,7 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	v.Check(oldPassword != "", "oldPassword", "old password must be provided")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating password update", v.Errors)
 		return
 	}
 
@@ -303,41 +294,37 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		OldPassword: oldPassword,
 	}
 
-	res, err := h.authUC.UpdatePassword(user.ID, passwords)
+	res, err := h.authUC.UpdatePassword(r.Context(), user.ID, passwords)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidOldPassword) {
-			_ = utils.BadRequest(w, r, errors.New("invalid old password"))
-		} else if errors.Is(err, auth.ErrPasswordUpdateFailed) {
-			_ = utils.BadRequest(w, r, errors.New("failed to update password"))
+			h.writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		} else if errors.Is(err, auth.ErrUserNotFound) {
+			h.writeError(w, http.StatusNotFound, "user not found")
 		} else {
-			_ = utils.BadRequest(w, r, errors.New("error updating password"))
+			h.writeInternalError(w, "updating password", err)
 		}
-		h.logger.Errorf("Error updating password: %v", err)
 		return
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
 
 // UpdateProfile updates the authenticated user's profile and avatar.
-// Endpoint: POST /api/v1/auth/me/update
+// Endpoint: PUT /api/v1/auth/me/update
 // Expects form data: name, email, avatar.
 func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
-	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	user, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("parsing form error: %v", err)
+		h.writeBadRequest(w, "parsing profile-update form", err)
 		return
 	}
 
@@ -353,24 +340,28 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	v.IsEmailValid(email, "email", "email must be valid")
 
 	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
+		h.writeValidationError(w, r, "validating profile update", v.Errors)
 		return
 	}
 
 	user.Name = name
 	user.Email = email
 
-	err = h.authUC.UpdateProfile(*user, avatar)
+	err = h.authUC.UpdateProfile(r.Context(), *user, avatar)
 	if err != nil {
-		if errors.Is(err, auth.ErrAvatarUploadFailed) {
-			_ = utils.BadRequest(w, r, errors.New("failed to upload avatar"))
+		if errors.Is(err, auth.ErrUserNotFound) {
+			h.writeError(w, http.StatusNotFound, "user not found")
+		} else if errors.Is(err, auth.ErrUserAlreadyExists) {
+			h.writeError(w, http.StatusConflict, "email address is already in use")
+		} else if errors.Is(err, auth.ErrAvatarUploadFailed) {
+			h.logger.Errorf("uploading profile avatar: %v", err)
+			h.writeError(w, http.StatusBadGateway, "failed to upload avatar")
 		} else if errors.Is(err, auth.ErrAvatarDeletionFailed) {
-			_ = utils.BadRequest(w, r, errors.New("failed to delete old avatar"))
+			h.logger.Errorf("cleaning up old profile avatar: %v", err)
+			h.writeError(w, http.StatusBadGateway, "profile updated, but avatar cleanup failed")
 		} else {
-			_ = utils.BadRequest(w, r, errors.New("error updating profile"))
+			h.writeInternalError(w, "updating profile", err)
 		}
-		h.logger.Errorf("Error updating profile: %v", err)
 		return
 	}
 
@@ -380,33 +371,29 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
 
 // Logout deletes the provided token and logs out the user.
 // Endpoint: POST /api/v1/auth/logout
-// Expects URL param: token.
+// Expects an Authorization bearer token.
 func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	t := bearerToken(r)
 
 	if t == "" {
-		_ = utils.BadRequest(w, r, errors.New("authorization bearer token must be provided"))
-		h.logger.Error("authorization bearer token must be provided")
+		h.writeError(w, http.StatusBadRequest, "authorization bearer token must be provided")
 		return
 	}
 
-	err := h.authUC.DeleteUserToken(t)
+	err := h.authUC.DeleteUserToken(r.Context(), t)
 	if err != nil {
 		if errors.Is(err, auth.ErrTokenNotFound) {
-			_ = utils.BadRequest(w, r, errors.New("token not found"))
+			h.writeError(w, http.StatusUnauthorized, "invalid authentication credentials")
 		} else {
-			_ = utils.BadRequest(w, r, errors.New("error deleting user token"))
+			h.writeInternalError(w, "deleting user token", err)
 		}
-		h.logger.Errorf("error deleting user token: %v", err)
 		return
 	}
 
@@ -418,9 +405,7 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 		Message: "logout successful",
 	}
 
-	if err := utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err := h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
@@ -436,21 +421,20 @@ func bearerToken(r *http.Request) string {
 // GetAllUsers returns all users (admin).
 // Endpoint: GET /api/v1/auth/admin/users
 func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
-	users, err := h.authUC.GetAllUsers(actor)
+	users, err := h.authUC.GetAllUsers(r.Context(), actor)
 	if err != nil {
 		if errors.Is(err, auth.ErrForbidden) {
-			_ = utils.BadRequest(w, r, errors.New("forbidden: admin only"))
+			h.writeError(w, http.StatusForbidden, "forbidden: admin only")
 		} else {
-			_ = utils.BadRequest(w, r, errors.New("error getting all users"))
+			h.writeInternalError(w, "getting all users", err)
 		}
-		h.logger.Errorf("error getting all users: %v", err)
 		return
 	}
 
@@ -462,9 +446,7 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		Users:   users,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
@@ -475,29 +457,33 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("id must be provided"))
-		h.logger.Error("id must be provided")
+		h.writeError(w, http.StatusBadRequest, "id must be provided")
 		return
 	}
 
 	userID, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing user ID", err)
 		return
 	}
 
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
-	user, err := h.authUC.GetUserDetails(actor, userID)
+	user, err := h.authUC.GetUserDetails(r.Context(), actor, userID)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error getting user details: %v", err)
+		switch {
+		case errors.Is(err, auth.ErrUserNotFound):
+			h.writeError(w, http.StatusNotFound, "user not found")
+		case errors.Is(err, auth.ErrUserAccessDenied), errors.Is(err, auth.ErrForbidden):
+			h.writeError(w, http.StatusForbidden, "access denied")
+		default:
+			h.writeInternalError(w, "getting user details", err)
+		}
 		return
 	}
 
@@ -506,9 +492,7 @@ func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 		User:    *user,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
@@ -519,22 +503,19 @@ func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("id must be provided"))
-		h.logger.Error("id must be provided")
+		h.writeError(w, http.StatusBadRequest, "id must be provided")
 		return
 	}
 
 	userID, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing user ID", err)
 		return
 	}
 
 	err = r.ParseMultipartForm(100000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing multipart form: %v", err)
+		h.writeBadRequest(w, "parsing user-update form", err)
 		return
 	}
 
@@ -550,8 +531,7 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	v.Check(role == "admin" || role == "user", "role", "role must be either admin or user")
 
 	if !v.Valid() {
-		_ = utils.BadRequest(w, r, errors.New("invalid input"))
-		h.logger.Error("invalid input")
+		h.writeValidationError(w, r, "validating user update", v.Errors)
 		return
 	}
 
@@ -561,29 +541,29 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role:  role,
 	}
 
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
-	res, err := h.authUC.UpdateUser(actor, userID, user)
+	res, err := h.authUC.UpdateUser(r.Context(), actor, userID, user)
 	if err != nil {
-		if errors.Is(err, auth.ErrUserNotFound) {
-			_ = utils.BadRequest(w, r, errors.New("user not found"))
-		} else if errors.Is(err, auth.ErrUserUpdateFailed) {
-			_ = utils.BadRequest(w, r, errors.New("failed to update user"))
-		} else {
-			_ = utils.BadRequest(w, r, errors.New("error updating user"))
+		switch {
+		case errors.Is(err, auth.ErrUserNotFound):
+			h.writeError(w, http.StatusNotFound, "user not found")
+		case errors.Is(err, auth.ErrForbidden):
+			h.writeError(w, http.StatusForbidden, "forbidden: admin only")
+		case errors.Is(err, auth.ErrUserAlreadyExists):
+			h.writeError(w, http.StatusConflict, "email address is already in use")
+		default:
+			h.writeInternalError(w, "updating user", err)
 		}
-		h.logger.Errorf("error updating user: %v", err)
 		return
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }
@@ -594,35 +574,36 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("id must be provided"))
-		h.logger.Error("id must be provided")
+		h.writeError(w, http.StatusBadRequest, "id must be provided")
 		return
 	}
 
 	userID, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing user ID", err)
 		return
 	}
 
-	actor, ok := r.Context().Value(UserContextKey).(*models.User)
+	actor, ok := authenticatedUser(r.Context())
 	if !ok {
-		_ = utils.BadRequest(w, r, errors.New(""))
+		h.writeError(w, http.StatusInternalServerError, "internal server error")
 		h.logger.Error("unable to retrieve user from session")
 		return
 	}
 
-	err = h.authUC.DeleteUser(actor, userID)
+	err = h.authUC.DeleteUser(r.Context(), actor, userID)
 	if err != nil {
-		if errors.Is(err, auth.ErrUserNotFound) {
-			_ = utils.BadRequest(w, r, errors.New("user not found"))
-		} else if errors.Is(err, auth.ErrUserDeletionFailed) {
-			_ = utils.BadRequest(w, r, errors.New("failed to delete user"))
-		} else {
-			_ = utils.BadRequest(w, r, errors.New("error deleting user"))
+		switch {
+		case errors.Is(err, auth.ErrUserNotFound):
+			h.writeError(w, http.StatusNotFound, "user not found")
+		case errors.Is(err, auth.ErrForbidden):
+			h.writeError(w, http.StatusForbidden, "forbidden: admin only")
+		case errors.Is(err, auth.ErrAvatarDeletionFailed):
+			h.logger.Errorf("cleaning up deleted user's avatar: %v", err)
+			h.writeError(w, http.StatusBadGateway, "user was deleted, but avatar cleanup failed")
+		default:
+			h.writeInternalError(w, "deleting user", err)
 		}
-		h.logger.Errorf("error deleting user: %v", err)
 		return
 	}
 
@@ -630,9 +611,7 @@ func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
+	if err = h.writeJSON(w, http.StatusOK, res); err != nil {
 		return
 	}
 }

@@ -2,10 +2,12 @@ package utils
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +27,31 @@ func TestWriteJSON(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, w.Code, http.StatusOK)
+}
+
+type failingResponseWriter struct {
+	*httptest.ResponseRecorder
+	writeErr error
+}
+
+func (w failingResponseWriter) Write(p []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	return len(p) - 1, nil
+}
+
+func TestWriteJSONReturnsWriteFailures(t *testing.T) {
+	t.Run("writer error", func(t *testing.T) {
+		wantErr := errors.New("connection closed")
+		w := failingResponseWriter{ResponseRecorder: httptest.NewRecorder(), writeErr: wantErr}
+		assert.ErrorIs(t, WriteJSON(w, http.StatusOK, map[string]string{"ok": "yes"}), wantErr)
+	})
+
+	t.Run("short write", func(t *testing.T) {
+		w := failingResponseWriter{ResponseRecorder: httptest.NewRecorder()}
+		assert.ErrorIs(t, WriteJSON(w, http.StatusOK, map[string]string{"ok": "yes"}), io.ErrShortWrite)
+	})
 }
 
 func TestReadJSON(t *testing.T) {
@@ -64,6 +91,11 @@ func TestBadRequest(t *testing.T) {
 
 	// Check the response status code
 	assert.Equal(t, w.Code, http.StatusBadRequest)
+	var badRequestPayload struct {
+		Success bool `json:"success"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &badRequestPayload))
+	assert.False(t, badRequestPayload.Success)
 }
 
 func TestInvalidCredentials(t *testing.T) {
@@ -78,6 +110,11 @@ func TestInvalidCredentials(t *testing.T) {
 
 	// Check the response status code
 	assert.Equal(t, w.Code, http.StatusUnauthorized)
+	var unauthorizedPayload struct {
+		Success bool `json:"success"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &unauthorizedPayload))
+	assert.False(t, unauthorizedPayload.Success)
 }
 
 func TestPasswordMatches(t *testing.T) {
@@ -107,6 +144,11 @@ func TestFailedValidation(t *testing.T) {
 
 	// Check the response status code
 	assert.Equal(t, w.Code, http.StatusUnprocessableEntity)
+	var validationPayload struct {
+		Success bool `json:"success"`
+	}
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &validationPayload))
+	assert.False(t, validationPayload.Success)
 }
 
 func TestProcessImage(t *testing.T) {

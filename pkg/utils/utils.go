@@ -45,8 +45,13 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}, headers ...h
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(out)
-
+	written, err := w.Write(out)
+	if err != nil {
+		return err
+	}
+	if written != len(out) {
+		return io.ErrShortWrite
+	}
 	return nil
 }
 
@@ -72,23 +77,10 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, data interface{}) error {
 
 // BadRequest sends a JSON response with status http.StatusBadRequest, describing the error
 func BadRequest(w http.ResponseWriter, r *http.Request, err error) error {
-	var payload struct {
-		Success bool   `json:"success"`
-		Message string `json:"message"`
-	}
-
-	payload.Success = true
-	payload.Message = err.Error()
-
-	out, err := json.MarshalIndent(payload, "", "\t")
-	if err != nil {
-		return err
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	w.Write(out)
-	return nil
+	return WriteJSON(w, http.StatusBadRequest, models.Response{
+		Success: false,
+		Message: err.Error(),
+	})
 }
 
 func InvalidCredentials(w http.ResponseWriter) error {
@@ -97,7 +89,7 @@ func InvalidCredentials(w http.ResponseWriter) error {
 		Message string `json:"message"`
 	}
 
-	payload.Success = true
+	payload.Success = false
 	payload.Message = "invalid authentication credentials"
 
 	err := WriteJSON(w, http.StatusUnauthorized, payload)
@@ -113,7 +105,7 @@ func TooManyRequests(w http.ResponseWriter) error {
 		Message string `json:"message"`
 	}
 
-	payload.Success = true
+	payload.Success = false
 	payload.Message = "Too many requests"
 
 	err := WriteJSON(w, http.StatusTooManyRequests, payload)
@@ -137,17 +129,17 @@ func PasswordMatches(hash, password string) (bool, error) {
 	return true, nil
 }
 
-func FailedValidation(w http.ResponseWriter, r *http.Request, errors map[string]string) {
+func FailedValidation(w http.ResponseWriter, r *http.Request, errors map[string]string) error {
 	var payload struct {
 		Success bool              `json:"success"`
 		Message string            `json:"message"`
 		Errors  map[string]string `json:"errors"`
 	}
 
-	payload.Success = true
+	payload.Success = false
 	payload.Message = "failed validation"
 	payload.Errors = errors
-	WriteJSON(w, http.StatusUnprocessableEntity, payload)
+	return WriteJSON(w, http.StatusUnprocessableEntity, payload)
 }
 
 func ProcessImage(file multipart.File, width, height uint) ([]byte, error) {
@@ -176,14 +168,12 @@ func IsAuthenticated(next http.Handler) http.Handler {
 		authorizationHeader := r.Header.Get("Authorization")
 		if authorizationHeader == "" {
 			_ = InvalidCredentials(w)
-			fmt.Println("no authorization header received")
 			return
 		}
 
-		headerParts := strings.Split(authorizationHeader, " ")
-		if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+		headerParts := strings.Fields(authorizationHeader)
+		if len(headerParts) != 2 || !strings.EqualFold(headerParts[0], "Bearer") {
 			_ = InvalidCredentials(w)
-			fmt.Println("no authorization header received")
 			return
 		}
 
@@ -191,14 +181,12 @@ func IsAuthenticated(next http.Handler) http.Handler {
 
 		if len(token) != 26 {
 			_ = InvalidCredentials(w)
-			fmt.Println("error verifying token length")
 			return
 		}
 
-		user, err := Repo.FetchUserByTokenWithScope(token, pkgtoken.ScopeAuthentication)
+		user, err := Repo.FetchUserByTokenWithScope(r.Context(), token, pkgtoken.ScopeAuthentication)
 		if err != nil {
 			_ = InvalidCredentials(w)
-			fmt.Println("error retrieving token from database: ", err)
 			return
 		}
 

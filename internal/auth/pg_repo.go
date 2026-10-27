@@ -8,59 +8,41 @@ import (
 )
 
 type Repo interface {
-	// InsertUser inserts a user into the user table
-	InsertUser(user models.User) (*models.User, error)
-
 	// CreateUserAtomically inserts User, Avatar, and Token within a single database transaction.
 	// This ensures that the database state is consistent across all necessary write operations.
 	CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error)
 
-	// InsertAvatar insert avatar resource locator
-	InsertAvatar(avatar *models.Avatar) (models.Avatar, error)
-
-	// InsertToken inserts a token into the tokens table
-	InsertToken(t *models.Token, userID uuid.UUID) error
-
-	// FetchTokenById fetches a token by id
-	FetchTokenById(id uuid.UUID) (*models.Token, error)
+	// InsertToken inserts a token into the tokens table.
+	InsertToken(ctx context.Context, t *models.Token, userID uuid.UUID) error
 
 	// FetchAvatarById fetches avatar data using user id from the avatar table
-	FetchAvatarById(userId uuid.UUID) (models.Avatar, error)
-
-	// DeleteUsers deletes the users from the database
-	DeleteUsers() error
-
-	// DeleteAvatar deletes the avatar from the database
-	DeleteAvatar() error
+	FetchAvatarById(ctx context.Context, userId uuid.UUID) (models.Avatar, error)
 
 	// FetchUserByEmail fetches a user by email from the database
-	FetchUserByEmail(email string) (*models.User, error)
-
-	// FetchUserByToken fetches a user by token
-	FetchUserByToken(token string) (*models.User, error)
+	FetchUserByEmail(ctx context.Context, email string) (*models.User, error)
 
 	// FetchUserByTokenWithScope fetches a user by token and required scope
-	FetchUserByTokenWithScope(token string, scope string) (*models.User, error)
+	FetchUserByTokenWithScope(ctx context.Context, token string, scope string) (*models.User, error)
 
 	// UpdateUser updates the users table with new changes
-	UpdateUser(user models.User) error
+	UpdateUser(ctx context.Context, user models.User) error
 
 	// UpdatePasswordAndReplaceToken atomically changes a password, replaces the
 	// authentication token, and optionally invalidates password-reset tokens.
-	UpdatePasswordAndReplaceToken(user models.User, token *models.Token, revokeResetTokens bool) error
+	UpdatePasswordAndReplaceToken(ctx context.Context, user models.User, token *models.Token, revokeResetTokens bool) error
 
 	// FetchUserById returns a user by id and error if any error occurs
-	FetchUserById(id uuid.UUID) (*models.User, error)
+	FetchUserById(ctx context.Context, id uuid.UUID) (*models.User, error)
 
-	// DeleteAvatarById deletes an avatar by id
-	DeleteAvatarById(id string) error
-
-	// FetchAllUsers returns all users and error if any error occurs
-	FetchAllUsers() ([]*models.User, error)
+	// FetchAllUsers returns public user data.
+	FetchAllUsers(ctx context.Context) ([]*models.UserPublic, error)
 
 	// DeleteUserById deletes a user by id and error if any error occurs
-	DeleteUserById(id uuid.UUID) error
+	DeleteUserById(ctx context.Context, id uuid.UUID) error
 
-	// DeleteTokenById deletes a token by user id and error if any error occurs
-	DeleteTokenById(userId uuid.UUID) error
+	// DeleteAuthenticationToken deletes the presented authentication token.
+	DeleteAuthenticationToken(ctx context.Context, plainTextToken string) error
+
+	// UpdateProfile persists profile fields and an optional avatar replacement atomically.
+	UpdateProfile(ctx context.Context, userID uuid.UUID, name, email string, avatar *models.Avatar) error
 }

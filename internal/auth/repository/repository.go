@@ -7,11 +7,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgconn"
+	"github.com/jofosuware/go/shopit/internal/auth"
 	"github.com/jofosuware/go/shopit/internal/models"
+	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 )
 
 // AuthRepository provides methods for interacting with the authentication-related tables in the database.
@@ -26,6 +30,14 @@ func NewAuthRepository(db *sql.DB) *AuthRepository {
 	return &AuthRepository{
 		DB: db,
 	}
+}
+
+func mapEmailUniquenessError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "users_email_key" {
+		return fmt.Errorf("%w: %w", auth.ErrUserAlreadyExists, err)
+	}
+	return err
 }
 
 // InsertUser inserts a new user into the users table.
@@ -60,13 +72,13 @@ func (r *AuthRepository) InsertUser(u models.User) (*models.User, error) {
 }
 
 // UpdateUser updates an existing user in the users table.
-func (r *AuthRepository) UpdateUser(u models.User) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) UpdateUser(ctx context.Context, u models.User) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	query := `update users set name = $1, email = $2, password = $3, role = $4 where user_id = $5`
 
-	_, err := r.DB.ExecContext(ctx, query,
+	result, err := r.DB.ExecContext(ctx, query,
 		u.Name,
 		u.Email,
 		u.Password,
@@ -75,7 +87,15 @@ func (r *AuthRepository) UpdateUser(u models.User) error {
 	)
 
 	if err != nil {
+		return mapEmailUniquenessError(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
 		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 
 	return nil
@@ -84,8 +104,12 @@ func (r *AuthRepository) UpdateUser(u models.User) error {
 // UpdatePasswordAndReplaceToken atomically persists a password change and rotates
 // authentication credentials. When revokeResetTokens is true, all reset tokens for
 // the user are consumed in the same transaction.
-func (r *AuthRepository) UpdatePasswordAndReplaceToken(u models.User, t *models.Token, revokeResetTokens bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) UpdatePasswordAndReplaceToken(ctx context.Context, u models.User, t *models.Token, revokeResetTokens bool) error {
+	if t == nil {
+		return errors.New("token must not be nil")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	tx, err := r.DB.BeginTx(ctx, nil)
@@ -95,15 +119,23 @@ func (r *AuthRepository) UpdatePasswordAndReplaceToken(u models.User, t *models.
 	defer tx.Rollback()
 
 	const updateUserQuery = `update users set name = $1, email = $2, password = $3, role = $4 where user_id = $5`
-	if _, err = tx.ExecContext(ctx, updateUserQuery, u.Name, u.Email, u.Password, u.Role, u.ID); err != nil {
+	result, err := tx.ExecContext(ctx, updateUserQuery, u.Name, u.Email, u.Password, u.Role, u.ID)
+	if err != nil {
 		return err
 	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
 
-	if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, "authentication"); err != nil {
+	if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, pkgtoken.ScopeAuthentication); err != nil {
 		return err
 	}
 	if revokeResetTokens {
-		if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, "password_reset"); err != nil {
+		if _, err = tx.ExecContext(ctx, `delete from tokens where user_id = $1 and scope = $2`, u.ID, pkgtoken.ScopePasswordReset); err != nil {
 			return err
 		}
 	}
@@ -125,7 +157,7 @@ func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 	var avatar models.Avatar
 
 	query := `
-		insert into avatar 
+		insert into avatar
 			(public_id, url, user_id)
 		values
 			($1, $2, $3)
@@ -149,8 +181,8 @@ func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 }
 
 // FetchAvatarById fetches an avatar by user ID.
-func (r *AuthRepository) FetchAvatarById(userId uuid.UUID) (models.Avatar, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) FetchAvatarById(ctx context.Context, userId uuid.UUID) (models.Avatar, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	var a models.Avatar
@@ -200,8 +232,8 @@ func (r *AuthRepository) DeleteAvatar() error {
 }
 
 // FetchUserByEmail fetches a user by email.
-func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) FetchUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	var user models.User
@@ -222,15 +254,18 @@ func (r *AuthRepository) FetchUserByEmail(email string) (*models.User, error) {
 	)
 
 	if err != nil {
-		return &user, err
+		return nil, err
 	}
 
 	return &user, nil
 }
 
 // InsertToken inserts a token for a user, deleting any existing tokens for that user.
-func (r *AuthRepository) InsertToken(t *models.Token, userID uuid.UUID) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) InsertToken(ctx context.Context, t *models.Token, userID uuid.UUID) error {
+	if t == nil {
+		return errors.New("token must not be nil")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -325,8 +360,8 @@ func (r *AuthRepository) FetchUserByToken(token string) (*models.User, error) {
 }
 
 // FetchUserById fetches a user by user ID.
-func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) FetchUserById(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	var user models.User
@@ -350,8 +385,8 @@ func (r *AuthRepository) FetchUserById(id uuid.UUID) (*models.User, error) {
 }
 
 // FetchUserByTokenWithScope fetches a user by token string and required scope.
-func (r *AuthRepository) FetchUserByTokenWithScope(token string, scope string) (*models.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) FetchUserByTokenWithScope(ctx context.Context, token string, scope string) (*models.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	tokenHash := sha256.Sum256([]byte(token))
@@ -384,8 +419,8 @@ func (r *AuthRepository) FetchUserByTokenWithScope(token string, scope string) (
 }
 
 // DeleteAvatarById deletes an avatar by its public ID.
-func (r *AuthRepository) DeleteAvatarById(id string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) DeleteAvatarById(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	query := `delete from avatar where public_id = $1`
@@ -399,13 +434,13 @@ func (r *AuthRepository) DeleteAvatarById(id string) error {
 }
 
 // FetchAllUsers returns all users in the database.
-func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) FetchAllUsers(ctx context.Context) ([]*models.UserPublic, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	var users []*models.User
+	users := make([]*models.UserPublic, 0)
 
-	query := `select user_id, name, email, password, role, created_at from users`
+	query := `select user_id, name, email, role, created_at from users`
 
 	rows, err := r.DB.QueryContext(ctx, query)
 	if err != nil {
@@ -414,12 +449,11 @@ func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var user models.User
+		var user models.UserPublic
 		err := rows.Scan(
 			&user.ID,
 			&user.Name,
 			&user.Email,
-			&user.Password,
 			&user.Role,
 			&user.CreatedAt,
 		)
@@ -438,15 +472,22 @@ func (r *AuthRepository) FetchAllUsers() ([]*models.User, error) {
 }
 
 // DeleteUserById deletes a user by user ID.
-func (r *AuthRepository) DeleteUserById(id uuid.UUID) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func (r *AuthRepository) DeleteUserById(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	query := `delete from users where user_id = $1`
 
-	_, err := r.DB.ExecContext(ctx, query, id)
+	result, err := r.DB.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 
 	return nil
@@ -467,9 +508,84 @@ func (r *AuthRepository) DeleteTokenById(userId uuid.UUID) error {
 	return nil
 }
 
+// DeleteAuthenticationToken removes only the presented authentication token.
+func (r *AuthRepository) DeleteAuthenticationToken(ctx context.Context, plainTextToken string) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	tokenHash := sha256.Sum256([]byte(plainTextToken))
+	result, err := r.DB.ExecContext(ctx,
+		`delete from tokens where token_hash = $1 and scope = $2`,
+		tokenHash[:],
+		pkgtoken.ScopeAuthentication,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+// UpdateProfile updates profile fields and optionally replaces the avatar in one transaction.
+func (r *AuthRepository) UpdateProfile(ctx context.Context, userID uuid.UUID, name, email string, avatar *models.Avatar) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `update users set name = $1, email = $2 where user_id = $3`, name, email, userID)
+	if err != nil {
+		return mapEmailUniquenessError(err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if avatar != nil {
+		if _, err = tx.ExecContext(ctx, `delete from avatar where user_id = $1`, userID); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx,
+			`insert into avatar (public_id, url, user_id) values ($1, $2, $3)`,
+			avatar.PublicId,
+			avatar.Url,
+			userID,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // CreateUserAtomically inserts User, Avatar, and Token within a single database transaction.
 // This ensures that the database state is consistent across all necessary write operations.
 func (r *AuthRepository) CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error) {
+	if t == nil {
+		return nil, errors.New("token must not be nil")
+	}
+	if user.ID == uuid.Nil {
+		user.ID = uuid.New()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -478,8 +594,9 @@ func (r *AuthRepository) CreateUserAtomically(ctx context.Context, user models.U
 
 	// 1. Insert User
 	var insertedUser models.User
-	userInsertQuery := `insert into users (name, email, password, role, created_at) values ($1, $2, $3, $4, $5) returning user_id, name, email, password, role, created_at`
+	userInsertQuery := `insert into users (user_id, name, email, password, role, created_at) values ($1, $2, $3, $4, $5, $6) returning user_id, name, email, password, role, created_at`
 	err = tx.QueryRowContext(ctx, userInsertQuery,
+		user.ID,
 		user.Name,
 		user.Email,
 		user.Password,
@@ -494,6 +611,9 @@ func (r *AuthRepository) CreateUserAtomically(ctx context.Context, user models.U
 		&insertedUser.CreatedAt,
 	)
 	if err != nil {
+		if mappedErr := mapEmailUniquenessError(err); errors.Is(mappedErr, auth.ErrUserAlreadyExists) {
+			return nil, mappedErr
+		}
 		return nil, fmt.Errorf("failed to insert user: %w", err)
 	}
 

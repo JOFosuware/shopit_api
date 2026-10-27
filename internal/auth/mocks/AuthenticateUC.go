@@ -3,8 +3,7 @@
 package mocks
 
 import (
-	http "net/http"
-
+	context "context"
 	models "github.com/jofosuware/go/shopit/internal/models"
 	mock "github.com/stretchr/testify/mock"
 
@@ -16,17 +15,42 @@ type AuthenticateUC struct {
 	mock.Mock
 }
 
+// Authenticate provides a mock function with given fields: ctx, token
+func (_m *AuthenticateUC) Authenticate(ctx context.Context, token string) (*models.User, error) {
+	ret := _m.Called(ctx, token)
+	if len(ret) == 0 {
+		panic("no return value specified for Authenticate")
+	}
+
+	var user *models.User
+	var err error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.User, error)); ok {
+		return rf(ctx, token)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.User); ok {
+		user = rf(ctx, token)
+	} else if ret.Get(0) != nil {
+		user = ret.Get(0).(*models.User)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		err = rf(ctx, token)
+	} else {
+		err = ret.Error(1)
+	}
+	return user, err
+}
+
 // DeleteUser provides a mock function with given fields: actor, userID
-func (_m *AuthenticateUC) DeleteUser(actor *models.User, userID uuid.UUID) error {
-	ret := _m.Called(actor, userID)
+func (_m *AuthenticateUC) DeleteUser(ctx context.Context, actor *models.User, userID uuid.UUID) error {
+	ret := _m.Called(ctx, actor, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteUser")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) error); ok {
-		r0 = rf(actor, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User, uuid.UUID) error); ok {
+		r0 = rf(ctx, actor, userID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -35,16 +59,16 @@ func (_m *AuthenticateUC) DeleteUser(actor *models.User, userID uuid.UUID) error
 }
 
 // DeleteUserToken provides a mock function with given fields: token
-func (_m *AuthenticateUC) DeleteUserToken(token string) error {
-	ret := _m.Called(token)
+func (_m *AuthenticateUC) DeleteUserToken(ctx context.Context, token string) error {
+	ret := _m.Called(ctx, token)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteUserToken")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(token)
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, token)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -53,8 +77,8 @@ func (_m *AuthenticateUC) DeleteUserToken(token string) error {
 }
 
 // GetAllUsers provides a mock function with given fields: actor
-func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.UserPublic, error) {
-	ret := _m.Called(actor)
+func (_m *AuthenticateUC) GetAllUsers(ctx context.Context, actor *models.User) ([]*models.UserPublic, error) {
+	ret := _m.Called(ctx, actor)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllUsers")
@@ -62,19 +86,19 @@ func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.UserPublic,
 
 	var r0 []*models.UserPublic
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*models.User) ([]*models.UserPublic, error)); ok {
-		return rf(actor)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User) ([]*models.UserPublic, error)); ok {
+		return rf(ctx, actor)
 	}
-	if rf, ok := ret.Get(0).(func(*models.User) []*models.UserPublic); ok {
-		r0 = rf(actor)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User) []*models.UserPublic); ok {
+		r0 = rf(ctx, actor)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*models.UserPublic)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(*models.User) error); ok {
-		r1 = rf(actor)
+	if rf, ok := ret.Get(1).(func(context.Context, *models.User) error); ok {
+		r1 = rf(ctx, actor)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -83,8 +107,8 @@ func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.UserPublic,
 }
 
 // GetUserDetails provides a mock function with given fields: actor, userID
-func (_m *AuthenticateUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.UserPublic, error) {
-	ret := _m.Called(actor, userID)
+func (_m *AuthenticateUC) GetUserDetails(ctx context.Context, actor *models.User, userID uuid.UUID) (*models.UserPublic, error) {
+	ret := _m.Called(ctx, actor, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetUserDetails")
@@ -92,19 +116,19 @@ func (_m *AuthenticateUC) GetUserDetails(actor *models.User, userID uuid.UUID) (
 
 	var r0 *models.UserPublic
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) (*models.UserPublic, error)); ok {
-		return rf(actor, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User, uuid.UUID) (*models.UserPublic, error)); ok {
+		return rf(ctx, actor, userID)
 	}
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) *models.UserPublic); ok {
-		r0 = rf(actor, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User, uuid.UUID) *models.UserPublic); ok {
+		r0 = rf(ctx, actor, userID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserPublic)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(*models.User, uuid.UUID) error); ok {
-		r1 = rf(actor, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, *models.User, uuid.UUID) error); ok {
+		r1 = rf(ctx, actor, userID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -113,8 +137,8 @@ func (_m *AuthenticateUC) GetUserDetails(actor *models.User, userID uuid.UUID) (
 }
 
 // Login provides a mock function with given fields: email, password
-func (_m *AuthenticateUC) Login(email string, password string) (*models.UserResponse, error) {
-	ret := _m.Called(email, password)
+func (_m *AuthenticateUC) Login(ctx context.Context, email string, password string) (*models.UserResponse, error) {
+	ret := _m.Called(ctx, email, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Login")
@@ -122,19 +146,19 @@ func (_m *AuthenticateUC) Login(email string, password string) (*models.UserResp
 
 	var r0 *models.UserResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*models.UserResponse, error)); ok {
-		return rf(email, password)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*models.UserResponse, error)); ok {
+		return rf(ctx, email, password)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *models.UserResponse); ok {
-		r0 = rf(email, password)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *models.UserResponse); ok {
+		r0 = rf(ctx, email, password)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(email, password)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, email, password)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -143,8 +167,8 @@ func (_m *AuthenticateUC) Login(email string, password string) (*models.UserResp
 }
 
 // Register provides a mock function with given fields: user, avatar
-func (_m *AuthenticateUC) Register(user models.User, avatar string) (*models.UserResponse, error) {
-	ret := _m.Called(user, avatar)
+func (_m *AuthenticateUC) Register(ctx context.Context, user models.User, avatar string) (*models.UserResponse, error) {
+	ret := _m.Called(ctx, user, avatar)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Register")
@@ -152,19 +176,19 @@ func (_m *AuthenticateUC) Register(user models.User, avatar string) (*models.Use
 
 	var r0 *models.UserResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(models.User, string) (*models.UserResponse, error)); ok {
-		return rf(user, avatar)
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, string) (*models.UserResponse, error)); ok {
+		return rf(ctx, user, avatar)
 	}
-	if rf, ok := ret.Get(0).(func(models.User, string) *models.UserResponse); ok {
-		r0 = rf(user, avatar)
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, string) *models.UserResponse); ok {
+		r0 = rf(ctx, user, avatar)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(models.User, string) error); ok {
-		r1 = rf(user, avatar)
+	if rf, ok := ret.Get(1).(func(context.Context, models.User, string) error); ok {
+		r1 = rf(ctx, user, avatar)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -173,8 +197,8 @@ func (_m *AuthenticateUC) Register(user models.User, avatar string) (*models.Use
 }
 
 // ResetPassword provides a mock function with given fields: token, password
-func (_m *AuthenticateUC) ResetPassword(token string, password string) (*models.UserResponse, error) {
-	ret := _m.Called(token, password)
+func (_m *AuthenticateUC) ResetPassword(ctx context.Context, token string, password string) (*models.UserResponse, error) {
+	ret := _m.Called(ctx, token, password)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResetPassword")
@@ -182,19 +206,19 @@ func (_m *AuthenticateUC) ResetPassword(token string, password string) (*models.
 
 	var r0 *models.UserResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*models.UserResponse, error)); ok {
-		return rf(token, password)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*models.UserResponse, error)); ok {
+		return rf(ctx, token, password)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *models.UserResponse); ok {
-		r0 = rf(token, password)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *models.UserResponse); ok {
+		r0 = rf(ctx, token, password)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(token, password)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, token, password)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -202,9 +226,9 @@ func (_m *AuthenticateUC) ResetPassword(token string, password string) (*models.
 	return r0, r1
 }
 
-// SendPasswordResetEmail provides a mock function with given fields: email, r
-func (_m *AuthenticateUC) SendPasswordResetEmail(email string, r *http.Request) (*models.Response, error) {
-	ret := _m.Called(email, r)
+// SendPasswordResetEmail provides a mock function with given fields: email
+func (_m *AuthenticateUC) SendPasswordResetEmail(ctx context.Context, email string) (*models.Response, error) {
+	ret := _m.Called(ctx, email)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendPasswordResetEmail")
@@ -212,19 +236,19 @@ func (_m *AuthenticateUC) SendPasswordResetEmail(email string, r *http.Request) 
 
 	var r0 *models.Response
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, *http.Request) (*models.Response, error)); ok {
-		return rf(email, r)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*models.Response, error)); ok {
+		return rf(ctx, email)
 	}
-	if rf, ok := ret.Get(0).(func(string, *http.Request) *models.Response); ok {
-		r0 = rf(email, r)
+	if rf, ok := ret.Get(0).(func(context.Context, string) *models.Response); ok {
+		r0 = rf(ctx, email)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.Response)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, *http.Request) error); ok {
-		r1 = rf(email, r)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, email)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -233,8 +257,8 @@ func (_m *AuthenticateUC) SendPasswordResetEmail(email string, r *http.Request) 
 }
 
 // UpdatePassword provides a mock function with given fields: userId, passwords
-func (_m *AuthenticateUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error) {
-	ret := _m.Called(userId, passwords)
+func (_m *AuthenticateUC) UpdatePassword(ctx context.Context, userId uuid.UUID, passwords models.Passwords) (*models.UserResponse, error) {
+	ret := _m.Called(ctx, userId, passwords)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdatePassword")
@@ -242,19 +266,19 @@ func (_m *AuthenticateUC) UpdatePassword(userId uuid.UUID, passwords models.Pass
 
 	var r0 *models.UserResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID, models.Passwords) (*models.UserResponse, error)); ok {
-		return rf(userId, passwords)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, models.Passwords) (*models.UserResponse, error)); ok {
+		return rf(ctx, userId, passwords)
 	}
-	if rf, ok := ret.Get(0).(func(uuid.UUID, models.Passwords) *models.UserResponse); ok {
-		r0 = rf(userId, passwords)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, models.Passwords) *models.UserResponse); ok {
+		r0 = rf(ctx, userId, passwords)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uuid.UUID, models.Passwords) error); ok {
-		r1 = rf(userId, passwords)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, models.Passwords) error); ok {
+		r1 = rf(ctx, userId, passwords)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -263,16 +287,16 @@ func (_m *AuthenticateUC) UpdatePassword(userId uuid.UUID, passwords models.Pass
 }
 
 // UpdateProfile provides a mock function with given fields: user, avatar
-func (_m *AuthenticateUC) UpdateProfile(user models.User, avatar string) error {
-	ret := _m.Called(user, avatar)
+func (_m *AuthenticateUC) UpdateProfile(ctx context.Context, user models.User, avatar string) error {
+	ret := _m.Called(ctx, user, avatar)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateProfile")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(models.User, string) error); ok {
-		r0 = rf(user, avatar)
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, string) error); ok {
+		r0 = rf(ctx, user, avatar)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -281,8 +305,8 @@ func (_m *AuthenticateUC) UpdateProfile(user models.User, avatar string) error {
 }
 
 // UpdateUser provides a mock function with given fields: actor, userID, user
-func (_m *AuthenticateUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error) {
-	ret := _m.Called(actor, userID, user)
+func (_m *AuthenticateUC) UpdateUser(ctx context.Context, actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error) {
+	ret := _m.Called(ctx, actor, userID, user)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateUser")
@@ -290,19 +314,19 @@ func (_m *AuthenticateUC) UpdateUser(actor *models.User, userID uuid.UUID, user 
 
 	var r0 *models.UserResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID, models.User) (*models.UserResponse, error)); ok {
-		return rf(actor, userID, user)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User, uuid.UUID, models.User) (*models.UserResponse, error)); ok {
+		return rf(ctx, actor, userID, user)
 	}
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID, models.User) *models.UserResponse); ok {
-		r0 = rf(actor, userID, user)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.User, uuid.UUID, models.User) *models.UserResponse); ok {
+		r0 = rf(ctx, actor, userID, user)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.UserResponse)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(*models.User, uuid.UUID, models.User) error); ok {
-		r1 = rf(actor, userID, user)
+	if rf, ok := ret.Get(1).(func(context.Context, *models.User, uuid.UUID, models.User) error); ok {
+		r1 = rf(ctx, actor, userID, user)
 	} else {
 		r1 = ret.Error(1)
 	}
