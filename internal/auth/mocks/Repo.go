@@ -3,6 +3,7 @@
 package mocks
 
 import (
+	context "context"
 	uuid "github.com/google/uuid"
 	models "github.com/jofosuware/go/shopit/internal/models"
 	mock "github.com/stretchr/testify/mock"
@@ -304,6 +305,34 @@ func (_m *Repo) FetchUserByTokenWithScope(token string, scope string) (*models.U
 
 	if rf, ok := ret.Get(1).(func(string, string) error); ok {
 		r1 = rf(token, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CreateUserAtomically provides a mock function with given fields: ctx, user, avatar, t
+func (_m *Repo) CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error) {
+	ret := _m.Called(ctx, user, avatar, t)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateUserAtomically")
+	}
+
+	var r0 *models.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, models.Avatar, *models.Token) (*models.User, error)); ok {
+		return rf(ctx, user, avatar, t)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, models.User, models.Avatar, *models.Token) *models.User); ok {
+		r0 = rf(ctx, user, avatar, t)
+	} else if ret.Get(0) != nil {
+		r0 = ret.Get(0).(*models.User)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, models.User, models.Avatar, *models.Token) error); ok {
+		r1 = rf(ctx, user, avatar, t)
 	} else {
 		r1 = ret.Error(1)
 	}

@@ -26,14 +26,12 @@ type AuthenticateUC interface {
 	// UpdateProfile update a user profile, returns error on failure
 	UpdateProfile(user models.User, avatar string) error
 
-	// GetAllUsers fetches all users from the database and return a pointer to a slice of User structs
-	// or an error if any occurs during the process. The `actor` is the authenticated caller.
-	GetAllUsers(actor *models.User) ([]*models.User, error)
+	// GetAllUsers fetches public user data for the authenticated caller.
+	GetAllUsers(actor *models.User) ([]*models.UserPublic, error)
 
-	// GetUserDetails fetches detailed user data based on the provided userID from the database
-	// and returns a pointer to a User struct or an error if any occurs during the process.
+	// GetUserDetails fetches public user data based on the provided userID.
 	// The `actor` is the authenticated caller.
-	GetUserDetails(actor *models.User, userID uuid.UUID) (*models.User, error)
+	GetUserDetails(actor *models.User, userID uuid.UUID) (*models.UserPublic, error)
 
 	// UpdateUser updates the user data in the database based on the provided userID and returns
 	// a pointer to the updated UserResponse struct or an error if any occurs during the process.

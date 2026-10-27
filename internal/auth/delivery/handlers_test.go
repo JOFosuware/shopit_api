@@ -8,6 +8,7 @@ package delivery_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -401,9 +402,20 @@ func TestGetUserProfile(t *testing.T) {
 		}
 		ctx := context.WithValue(req.Context(), UserContextKey, &u)
 		req = req.WithContext(ctx)
-		authUC.On("GetUserDetails", &u, u.ID).Return(&u, nil).Once()
+		publicUser := &models.UserPublic{
+			ID:     u.ID,
+			Name:   u.Name,
+			Email:  u.Email,
+			Role:   u.Role,
+			Avatar: u.Avatar,
+		}
+		authUC.On("GetUserDetails", &u, u.ID).Return(publicUser, nil).Once()
 		h.GetUserProfile(rr, req)
 		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.NotContains(t, rr.Body.String(), u.Password)
+		var response models.UserResponse
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+		assert.Equal(t, *publicUser, response.User)
 		authUC.AssertExpectations(t)
 	})
 

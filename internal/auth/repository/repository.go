@@ -1,3 +1,4 @@
+// internal/auth/repository/repository.go
 // Package repository provides the data access layer for authentication-related operations.
 // It implements methods for user, avatar, and token management using a SQL database.
 package repository
@@ -6,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -463,4 +465,81 @@ func (r *AuthRepository) DeleteTokenById(userId uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// CreateUserAtomically inserts User, Avatar, and Token within a single database transaction.
+// This ensures that the database state is consistent across all necessary write operations.
+func (r *AuthRepository) CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Insert User
+	var insertedUser models.User
+	userInsertQuery := `insert into users (name, email, password, role, created_at) values ($1, $2, $3, $4, $5) returning user_id, name, email, password, role, created_at`
+	err = tx.QueryRowContext(ctx, userInsertQuery,
+		user.Name,
+		user.Email,
+		user.Password,
+		user.Role,
+		time.Now(),
+	).Scan(
+		&insertedUser.ID,
+		&insertedUser.Name,
+		&insertedUser.Email,
+		&insertedUser.Password,
+		&insertedUser.Role,
+		&insertedUser.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert user: %w", err)
+	}
+
+	// 2. Insert Avatar
+	var insertedAvatar models.Avatar
+	avatarInsertQuery := `
+		insert into avatar 
+			(public_id, url, user_id)
+		values
+			($1, $2, $3)
+		returning public_id, url, user_id
+	`
+	err = tx.QueryRowContext(ctx, avatarInsertQuery,
+		avatar.PublicId,
+		avatar.Url,
+		insertedUser.ID,
+	).Scan(
+		&insertedAvatar.PublicId,
+		&insertedAvatar.Url,
+		&insertedAvatar.UserId,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert avatar: %w", err)
+	}
+
+	// 3. Insert Token
+	now := time.Now()
+	tokenInsertQuery := `insert into tokens (token_hash, expiry, user_id, scope, created_at, updated_at) values ($1, $2, $3, $4, $5, $6)`
+	_, err = tx.ExecContext(ctx, tokenInsertQuery,
+		t.Hash,
+		t.Expiry,
+		insertedUser.ID,
+		t.Scope,
+		now,
+		now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert token: %w", err)
+	}
+
+	// Commit all changes together
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Update the user struct to reflect the newly inserted avatar for return consistency
+	insertedUser.Avatar = insertedAvatar
+	return &insertedUser, nil
 }

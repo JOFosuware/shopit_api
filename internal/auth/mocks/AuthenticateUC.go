@@ -53,23 +53,23 @@ func (_m *AuthenticateUC) DeleteUserToken(token string) error {
 }
 
 // GetAllUsers provides a mock function with given fields: actor
-func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
+func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.UserPublic, error) {
 	ret := _m.Called(actor)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllUsers")
 	}
 
-	var r0 []*models.User
+	var r0 []*models.UserPublic
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*models.User) ([]*models.User, error)); ok {
+	if rf, ok := ret.Get(0).(func(*models.User) ([]*models.UserPublic, error)); ok {
 		return rf(actor)
 	}
-	if rf, ok := ret.Get(0).(func(*models.User) []*models.User); ok {
+	if rf, ok := ret.Get(0).(func(*models.User) []*models.UserPublic); ok {
 		r0 = rf(actor)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*models.User)
+			r0 = ret.Get(0).([]*models.UserPublic)
 		}
 	}
 
@@ -83,23 +83,23 @@ func (_m *AuthenticateUC) GetAllUsers(actor *models.User) ([]*models.User, error
 }
 
 // GetUserDetails provides a mock function with given fields: actor, userID
-func (_m *AuthenticateUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.User, error) {
+func (_m *AuthenticateUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.UserPublic, error) {
 	ret := _m.Called(actor, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetUserDetails")
 	}
 
-	var r0 *models.User
+	var r0 *models.UserPublic
 	var r1 error
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) (*models.User, error)); ok {
+	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) (*models.UserPublic, error)); ok {
 		return rf(actor, userID)
 	}
-	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) *models.User); ok {
+	if rf, ok := ret.Get(0).(func(*models.User, uuid.UUID) *models.UserPublic); ok {
 		r0 = rf(actor, userID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*models.User)
+			r0 = ret.Get(0).(*models.UserPublic)
 		}
 	}
 

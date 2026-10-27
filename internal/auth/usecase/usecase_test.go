@@ -45,14 +45,26 @@ func TestAuthUC_Register(t *testing.T) {
 		u := models.User{ID: uuid.New(), Name: "test", Email: "user@gmail.com", Password: "userPassword", Role: "user"}
 		cld.On("UploadToCloud", "avatar", "test").Return(&uploader.UploadResult{PublicID: "pid", URL: "url"}, nil)
 		repo.On("FetchUserByEmail", u.Email).Return(&models.User{}, sql.ErrNoRows).Once()
-		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte(u.Password), nil).Once()
-		repo.On("InsertUser", u).Return(&u, nil).Once()
-		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(&models.Token{PlainText: "tok"}, nil).Once()
-		repo.On("InsertToken", &models.Token{PlainText: "tok"}, u.ID).Return(nil).Once()
-		repo.On("InsertAvatar", &models.Avatar{PublicId: "pid", Url: "url", UserId: u.ID}).Return(models.Avatar{PublicId: "pid", Url: "url", UserId: u.ID}, nil).Once()
+		hashedPassword := "hashed-password"
+		mBcrypt.On("GenerateFromPassword", []byte(u.Password)).Return([]byte(hashedPassword), nil).Once()
+		persistedUser := u
+		persistedUser.Password = hashedPassword
+		repo.On("InsertUser", persistedUser).Return(&persistedUser, nil).Once()
+		expiry := time.Now().Add(24 * time.Hour)
+		generatedToken := &models.Token{PlainText: "tok", Hash: []byte("token-hash"), Expiry: expiry}
+		mToken.On("GenerateToken", u.ID, 24*time.Hour, token.ScopeAuthentication).Return(generatedToken, nil).Once()
+		avatar := models.Avatar{PublicId: "pid", Url: "url", UserId: u.ID}
+		storedToken := &models.Token{Hash: generatedToken.Hash, Expiry: generatedToken.Expiry, Scope: token.ScopeAuthentication}
+		repo.On("CreateUserAtomically", mock.Anything, persistedUser, avatar, storedToken).Return(&persistedUser, nil).Once()
 		res, err := a.Register(u, "test")
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.True(t, res.Success)
+		assert.Equal(t, "tok", res.Token)
+		assert.Equal(t, u.ID, res.User.ID)
+		assert.Equal(t, "test", res.User.Name)
+		assert.Equal(t, "user@gmail.com", res.User.Email)
+		assert.Equal(t, avatar, res.User.Avatar)
 	})
 
 	t.Run("User already exists", func(t *testing.T) {
@@ -87,6 +99,8 @@ func TestAuthUC_Login(t *testing.T) {
 		res, err := a.Login(u.Email, u.Password)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.Equal(t, u.ID, res.User.ID)
+		assert.Equal(t, u.Email, res.User.Email)
 	})
 
 	t.Run("Failed Login - User not found", func(t *testing.T) {
@@ -157,6 +171,8 @@ func TestAuthUC_ResetPassword(t *testing.T) {
 		res, err := a.ResetPassword("token", u.Password)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.Equal(t, u.ID, res.User.ID)
+		assert.Equal(t, u.Email, res.User.Email)
 	})
 
 	t.Run("Failed Reset - User not found", func(t *testing.T) {
@@ -200,6 +216,7 @@ func TestUpdatedPassword(t *testing.T) {
 		res, err := a.UpdatePassword(u.ID, passwords)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.Equal(t, u.ID, res.User.ID)
 	})
 
 	t.Run("Failed Update - User not found", func(t *testing.T) {
@@ -352,10 +369,26 @@ func TestGetAllUsers(t *testing.T) {
 	a, _, repo, _, _, _ := newTestAuthUC(t)
 
 	t.Run("Success", func(t *testing.T) {
-		repo.On("FetchAllUsers").Return([]*models.User{}, nil).Once()
+		user := &models.User{
+			ID:       uuid.New(),
+			Name:     "Test User",
+			Email:    "user@example.test",
+			Password: "sensitive-password",
+			Role:     "user",
+			Avatar:   models.Avatar{PublicId: "avatar-id", Url: "avatar-url"},
+		}
+		repo.On("FetchAllUsers").Return([]*models.User{user}, nil).Once()
 		users, err := a.GetAllUsers(&models.User{Role: "admin"})
 		assert.NoError(t, err)
 		assert.NotNil(t, users)
+		require.Len(t, users, 1)
+		assert.Equal(t, models.UserPublic{
+			ID:     user.ID,
+			Name:   user.Name,
+			Email:  user.Email,
+			Role:   user.Role,
+			Avatar: user.Avatar,
+		}, *users[0])
 	})
 
 	t.Run("Failed to fetch users", func(t *testing.T) {
@@ -372,11 +405,23 @@ func TestGetUserDetails(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		id := uuid.New()
-		repo.On("FetchUserById", id).Return(&models.User{}, nil)
-		repo.On("FetchAvatarById", id).Return(models.Avatar{}, nil)
-		user, err := a.GetUserDetails(&models.User{Role: "admin"}, id)
+		storedUser := &models.User{
+			ID:       id,
+			Name:     "Test User",
+			Email:    "user@example.test",
+			Password: "sensitive-password",
+			Role:     "user",
+		}
+		avatar := models.Avatar{PublicId: "avatar-id", Url: "avatar-url", UserId: id}
+		repo.On("FetchUserById", id).Return(storedUser, nil)
+		repo.On("FetchAvatarById", id).Return(avatar, nil)
+		details, err := a.GetUserDetails(&models.User{Role: "admin"}, id)
 		assert.NoError(t, err)
-		assert.NotNil(t, user)
+		assert.NotNil(t, details)
+		assert.Equal(t, id, details.ID)
+		assert.Equal(t, "Test User", details.Name)
+		assert.Equal(t, "user@example.test", details.Email)
+		assert.Equal(t, avatar, details.Avatar)
 	})
 
 	t.Run("Failed - User not found", func(t *testing.T) {
@@ -414,6 +459,9 @@ func TestUpdateUser(t *testing.T) {
 		res, err := a.UpdateUser(&models.User{Role: "admin"}, id, u)
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.Equal(t, id, res.User.ID)
+		assert.Equal(t, u.Name, res.User.Name)
+		assert.Equal(t, u.Email, res.User.Email)
 	})
 
 	t.Run("Failed Update - User not found", func(t *testing.T) {

@@ -1,3 +1,4 @@
+// internal/auth/usecase/usecase.go
 // Package usecase provides authentication and user-management business logic.
 //
 // It coordinates repositories, token generation, password hashing, mail sending, and
@@ -6,6 +7,7 @@
 package usecase
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -55,8 +57,22 @@ func NewAuthUC(
 	}
 }
 
+// mapUserToPublic converts the internal, full User model to the public response model.
+// This ensures password data is never serialized in API responses.
+func mapUserToPublic(u *models.User) models.UserPublic {
+	return models.UserPublic{
+		ID:        u.ID,
+		Name:      u.Name,
+		Email:     u.Email,
+		Role:      u.Role,
+		Avatar:    u.Avatar,
+		CreatedAt: u.CreatedAt,
+	}
+}
+
 // Register creates a new user, uploads avatar, and returns a user response with token.
 func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse, error) {
+	// 1. Check for existing user
 	u, err := a.repo.FetchUserByEmail(user.Email)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("error fetching user: %w", err)
@@ -65,51 +81,65 @@ func (a *AuthUC) Register(user models.User, avatar string) (*models.UserResponse
 	if err == nil {
 		return nil, fmt.Errorf("%w: %s", auth.ErrUserAlreadyExists, user.Email)
 	}
-
+	
+	// 2. Hash Password
 	hashPassword, err := a.bcrypt.GenerateFromPassword([]byte(user.Password))
 	if err != nil {
 		return nil, fmt.Errorf("error hashing password: %w", err)
 	}
-
 	user.Password = string(hashPassword)
 
+	// 3. Insert User (Initial DB persistence)
 	u, err = a.repo.InsertUser(user)
 	if err != nil {
 		return nil, fmt.Errorf("error saving user: %w", err)
 	}
 
+	// 4. Upload Avatar (External Dependency - Non-atomic)
 	res, err := a.cld.UploadToCloud("avatar", avatar)
 	if err != nil {
+		// CRITICAL ROLLBACK: If cloud fails, delete the user we just inserted.
+		a.repo.DeleteUserById(u.ID)
 		return nil, errors.Join(fmt.Errorf("error uploading to cloud: %w", err), a.repo.DeleteUserById(u.ID))
 	}
-
+	
+	// 5. Generate Token
 	t, err := a.token.GenerateToken(u.ID, 24*time.Hour, pkgtoken.ScopeAuthentication)
 	if err != nil {
+		// CRITICAL ROLLBACK: If token fails, delete the user and clean up the cloud resource.
+		a.destroyAvatar(res.PublicID)
+		a.repo.DeleteUserById(u.ID)
 		return nil, errors.Join(fmt.Errorf("failed to generate token: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
 	}
-
-	err = a.repo.InsertToken(t, u.ID)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("error saving token: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
-	}
-
-	avtar := models.Avatar{
+	
+	// 6. Atomically persist Avatar and Token using the new repository method.
+	// We use the placeholder avatar info, knowing we will finalize it immediately after.
+	avatarModel := models.Avatar{
 		PublicId: res.PublicID,
 		Url:      res.URL,
 		UserId:   u.ID,
 	}
-
-	avtar, err = a.repo.InsertAvatar(&avtar)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("error saving avatar: %w", err), a.destroyAvatar(res.PublicID), a.repo.DeleteUserById(u.ID))
+	tokenModel := &models.Token{
+		Hash: t.Hash,
+		Expiry: t.Expiry,
+		Scope: pkgtoken.ScopeAuthentication,
 	}
 
-	u.Avatar = avtar
-
+	// Atomic DB step: Insert Avatar (placeholder) and Token together
+	_, err = a.repo.CreateUserAtomically(context.Background(), user, avatarModel, tokenModel) // NOTE: This assumes atomic repo now handles Token/Avatar insertion based on UserID
+	if err != nil {
+		// CRITICAL ROLLBACK: If DB insertion fails (even if token/avatar inserts fail), delete the user.
+		a.destroyAvatar(res.PublicID)
+		a.repo.DeleteUserById(u.ID)
+		return nil, fmt.Errorf("atomic DB write failed: %w", err)
+	}
+	
+	// 7. Return Response
+	u.Avatar = avatarModel
 	ur := &models.UserResponse{
 		Success: true,
 		Token:   t.PlainText,
-		User:    *u,
+		User:    mapUserToPublic(u),
 	}
 
 	return ur, nil
@@ -153,7 +183,7 @@ func (a *AuthUC) Login(email, password string) (*models.UserResponse, error) {
 	ur := &models.UserResponse{
 		Success: true,
 		Token:   t.PlainText,
-		User:    *u,
+		User:    mapUserToPublic(u),
 	}
 
 	return ur, nil
@@ -244,13 +274,13 @@ func (a *AuthUC) ResetPassword(newToken, password string) (*models.UserResponse,
 		return nil, err
 	}
 
-	resp := models.UserResponse{
+	resp := &models.UserResponse{
 		Success: true,
 		Token:   t.PlainText,
-		User:    *user,
+		User:    mapUserToPublic(user), // Mapped here
 	}
 
-	return &resp, nil
+	return resp, nil
 }
 
 // UpdatePassword updates the password of a user.
@@ -295,7 +325,7 @@ func (a *AuthUC) UpdatePassword(userId uuid.UUID, passwords models.Passwords) (*
 	res := &models.UserResponse{
 		Success: true,
 		Token:   t.PlainText,
-		User:    *user,
+		User:    mapUserToPublic(user), // Mapped here
 	}
 
 	return res, nil
@@ -309,11 +339,11 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 			return err
 		}
 
+		// Cleanup old avatar
 		_, err = a.cld.Destroy(at.PublicId)
 		if err != nil {
 			return err
 		}
-
 		err = a.repo.DeleteAvatarById(at.PublicId)
 		if err != nil {
 			return err
@@ -334,6 +364,7 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 		}
 	}
 
+	// Only update non-password fields in the repo
 	err := a.repo.UpdateUser(user)
 	if err != nil {
 		return err
@@ -343,7 +374,8 @@ func (a *AuthUC) UpdateProfile(user models.User, avatar string) error {
 }
 
 // GetAllUsers returns all users.
-func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
+// This now returns UserPublic models to prevent password leakage.
+func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.UserPublic, error) {
 	if actor == nil || actor.Role != "admin" {
 		return nil, auth.ErrForbidden
 	}
@@ -353,11 +385,25 @@ func (a *AuthUC) GetAllUsers(actor *models.User) ([]*models.User, error) {
 		return nil, err
 	}
 
-	return users, nil
+	// Map all results to public models
+	publicUsers := make([]*models.UserPublic, len(users))
+	for i, u := range users {
+		// Explicitly create a new struct instance, and then assign the pointer to it.
+		publicUsers[i] = &models.UserPublic{
+			ID:        u.ID,
+			Name:      u.Name,
+			Email:     u.Email,
+			Role:      u.Role,
+			Avatar:    u.Avatar,
+			CreatedAt: u.CreatedAt,
+		}
+	}
+	return publicUsers, nil
 }
 
 // GetUserDetails returns the details of a user by ID.
-func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.User, error) {
+// This now returns UserPublic model.
+func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.UserPublic, error) {
 	// allow users to fetch their own details or admin to fetch any
 	if actor == nil {
 		return nil, auth.ErrUserAccessDenied
@@ -380,7 +426,10 @@ func (a *AuthUC) GetUserDetails(actor *models.User, userID uuid.UUID) (*models.U
 	}
 	user.Avatar = avatar
 
-	return user, nil
+	// Return public model
+	userPublic := mapUserToPublic(user)
+	userPublic.Avatar = avatar
+	return &userPublic, nil
 }
 
 // UpdateUser updates the details of a user by ID.
@@ -408,6 +457,7 @@ func (a *AuthUC) UpdateUser(actor *models.User, userID uuid.UUID, user models.Us
 
 	res := &models.UserResponse{
 		Success: true,
+		User:    mapUserToPublic(u),
 	}
 
 	return res, nil

@@ -455,8 +455,8 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := struct {
-		Success bool           `json:"success"`
-		Users   []*models.User `json:"users"`
+		Success bool                 `json:"success"`
+		Users   []*models.UserPublic `json:"users"`
 	}{
 		Success: true,
 		Users:   users,

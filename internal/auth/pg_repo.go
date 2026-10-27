@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
 )
@@ -8,6 +10,10 @@ import (
 type Repo interface {
 	// InsertUser inserts a user into the user table
 	InsertUser(user models.User) (*models.User, error)
+
+	// CreateUserAtomically inserts User, Avatar, and Token within a single database transaction.
+	// This ensures that the database state is consistent across all necessary write operations.
+	CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error)
 
 	// InsertAvatar insert avatar resource locator
 	InsertAvatar(avatar *models.Avatar) (models.Avatar, error)
