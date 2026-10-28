@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	auth "github.com/jofosuware/go/shopit/internal/auth/delivery"
 	order "github.com/jofosuware/go/shopit/internal/orders/delivery"
 	payment "github.com/jofosuware/go/shopit/internal/payment/delivery"
+	productCleanup "github.com/jofosuware/go/shopit/internal/products/cleanup"
 	product "github.com/jofosuware/go/shopit/internal/products/delivery"
 
 	"github.com/jofosuware/go/shopit/config"
@@ -22,9 +24,10 @@ var prodHandlers *product.ProdHandlers
 
 // Serve holds the Server configuration
 type Serve struct {
-	cfg    *config.Config
-	logger logger.Logger
-	DB     *sql.DB
+	cfg                  *config.Config
+	logger               logger.Logger
+	DB                   *sql.DB
+	productCleanupWorker *productCleanup.Worker
 }
 
 func NewServer(cfg *config.Config, logger logger.Logger, db *sql.DB) *Serve {
@@ -36,6 +39,12 @@ func NewServer(cfg *config.Config, logger logger.Logger, db *sql.DB) *Serve {
 }
 
 func (s *Serve) Run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if s.productCleanupWorker != nil {
+		go s.productCleanupWorker.Run(ctx)
+	}
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", s.cfg.Server.Port),
 		Handler:           s.Routes(),

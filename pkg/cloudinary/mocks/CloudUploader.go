@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	uploader "github.com/cloudinary/cloudinary-go/api/uploader"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -70,6 +72,30 @@ func (_m *CloudUploader) UploadToCloud(folder string, data interface{}) (*upload
 	}
 
 	return r0, r1
+}
+
+func (_m *CloudUploader) UploadToCloudWithPublicID(ctx context.Context, folder, publicID string, data interface{}) (*uploader.UploadResult, error) {
+	ret := _m.Called(ctx, folder, publicID, data)
+	if len(ret) == 0 {
+		panic("no return value specified for UploadToCloudWithPublicID")
+	}
+
+	var result *uploader.UploadResult
+	var err error
+	if fn, ok := ret.Get(0).(func(context.Context, string, string, interface{}) (*uploader.UploadResult, error)); ok {
+		return fn(ctx, folder, publicID, data)
+	}
+	if fn, ok := ret.Get(0).(func(context.Context, string, string, interface{}) *uploader.UploadResult); ok {
+		result = fn(ctx, folder, publicID, data)
+	} else if ret.Get(0) != nil {
+		result = ret.Get(0).(*uploader.UploadResult)
+	}
+	if fn, ok := ret.Get(1).(func(context.Context, string, string, interface{}) error); ok {
+		err = fn(ctx, folder, publicID, data)
+	} else {
+		err = ret.Error(1)
+	}
+	return result, err
 }
 
 // NewCloudUploader creates a new instance of CloudUploader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

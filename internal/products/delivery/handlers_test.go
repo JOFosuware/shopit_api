@@ -2,6 +2,7 @@ package delivery_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,11 +13,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
+	productdomain "github.com/jofosuware/go/shopit/internal/products"
 	"github.com/jofosuware/go/shopit/internal/products/delivery"
 	prodMock "github.com/jofosuware/go/shopit/internal/products/mocks"
 	mockLogger "github.com/jofosuware/go/shopit/pkg/logger/mock"
 	"github.com/jofosuware/go/shopit/pkg/utils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,7 +64,7 @@ func TestAddProduct(t *testing.T) {
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
 
-		prodUC.On("CreateProduct", models.Product{
+		prodUC.On("CreateProduct", req.Context(), models.Product{
 			Name:        formData.Get("name"),
 			Price:       price,
 			Description: formData.Get("description"),
@@ -93,7 +96,7 @@ func TestGetProducts(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		prodUC.On("GetProducts", "", 0).Return(&models.GetProd{}, nil)
+		prodUC.On("GetProducts", req.Context(), "", 1).Return(&models.GetProd{}, nil)
 
 		h.GetProducts(rr, req)
 
@@ -102,6 +105,76 @@ func TestGetProducts(t *testing.T) {
 
 		assert.Equal(t, want, got)
 	})
+}
+
+func TestGetProductsRejectsInvalidPage(t *testing.T) {
+	logger := mockLogger.NewLogger(t)
+	logger.On("Errorf", "%s: %v", "parsing product page", productdomain.ErrInvalidPage).Return()
+	prodUC := prodMock.NewProductUC(t)
+	h := delivery.NewProdHandlers(logger, prodUC)
+
+	req := httptest.NewRequest(http.MethodGet, "/products?page=not-a-number", nil)
+	rr := httptest.NewRecorder()
+	h.GetProducts(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	prodUC.AssertNotCalled(t, "GetProducts", mock.Anything, mock.Anything)
+}
+
+func TestCreateProductRejectsInvalidPrice(t *testing.T) {
+	logger := mockLogger.NewLogger(t)
+	logger.On("Errorf", "%s: %v", "validating product form", mock.Anything).Return()
+	prodUC := prodMock.NewProductUC(t)
+	h := delivery.NewProdHandlers(logger, prodUC)
+
+	fields := url.Values{
+		"name":        {"test"},
+		"price":       {"NaN"},
+		"description": {"test"},
+		"stock":       {"1"},
+		"seller":      {"test"},
+	}
+	payload, contentType, err := utils.CreateMultipartForm(fields)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/products", payload)
+	req.Header.Set("Content-Type", contentType)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, &models.User{ID: uuid.New()}))
+	rr := httptest.NewRecorder()
+
+	h.CreateProduct(rr, req)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"price": "price must be a positive number"`)
+	prodUC.AssertNotCalled(t, "CreateProduct", mock.Anything, mock.Anything)
+}
+
+func TestCreateProductMapsImageUploadFailureToBadGateway(t *testing.T) {
+	logger := mockLogger.NewLogger(t)
+	logger.On("Errorf", "%s: %v", "creating product", mock.Anything).Return()
+	prodUC := prodMock.NewProductUC(t)
+	h := delivery.NewProdHandlers(logger, prodUC)
+
+	fields := url.Values{
+		"name":        {"test"},
+		"price":       {"10"},
+		"description": {"test"},
+		"stock":       {"1"},
+		"seller":      {"test"},
+	}
+	payload, contentType, err := utils.CreateMultipartForm(fields)
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/products", payload)
+	req.Header.Set("Content-Type", contentType)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, &models.User{ID: uuid.New()}))
+	prodUC.On("CreateProduct", mock.Anything, mock.Anything, mock.Anything).
+		Return((*models.ProdResponse)(nil), fmt.Errorf("%w: provider details", productdomain.ErrImageUploadFailed))
+	rr := httptest.NewRecorder()
+
+	h.CreateProduct(rr, req)
+
+	assert.Equal(t, http.StatusBadGateway, rr.Code)
+	assert.Contains(t, rr.Body.String(), productdomain.ErrImageUploadFailed.Error())
+	assert.NotContains(t, rr.Body.String(), "provider details")
 }
 
 func TestGetAdminProducts(t *testing.T) {
@@ -116,7 +189,7 @@ func TestGetAdminProducts(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		prodUC.On("GetAdminProducts").Return([]*models.Product{}, nil)
+		prodUC.On("GetAdminProducts", req.Context()).Return([]*models.Product{}, nil)
 
 		h.GetAdminProducts(rr, req)
 
@@ -146,7 +219,7 @@ func TestGetSingleProduct(t *testing.T) {
 		rCtx.URLParams.Add("id", id.String())
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 
-		prodUC.On("GetSingleProduct", id).Return(&models.Product{}, nil)
+		prodUC.On("GetSingleProduct", req.Context(), id).Return(&models.Product{}, nil)
 
 		h.GetSingleProduct(rr, req)
 
@@ -155,6 +228,27 @@ func TestGetSingleProduct(t *testing.T) {
 
 		assert.Equal(t, want, got)
 	})
+}
+
+func TestGetSingleProductReturnsNotFound(t *testing.T) {
+	logger := mockLogger.NewLogger(t)
+	logger.On("Errorf", "%s: %v", "getting product", mock.Anything).Return()
+	prodUC := prodMock.NewProductUC(t)
+	h := delivery.NewProdHandlers(logger, prodUC)
+	id := uuid.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/product/"+id.String(), nil)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("id", id.String())
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeContext))
+	prodUC.On("GetSingleProduct", req.Context(), id).Return((*models.Product)(nil), fmt.Errorf("%w: %w", productdomain.ErrProductNotFound, sql.ErrNoRows))
+	rr := httptest.NewRecorder()
+
+	h.GetSingleProduct(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"message": "product not found"`)
+	assert.NotContains(t, rr.Body.String(), sql.ErrNoRows.Error())
 }
 
 func TestUpdateProduct(t *testing.T) {
@@ -194,7 +288,6 @@ func TestUpdateProduct(t *testing.T) {
 
 		multipartForm := req.MultipartForm
 		images := multipartForm.File["images"]
-		img, _ := utils.ExtractImages(images)
 		price, _ := strconv.ParseFloat(formData.Get("price"), 64)
 		stock, _ := strconv.Atoi(formData.Get("stock"))
 
@@ -206,7 +299,7 @@ func TestUpdateProduct(t *testing.T) {
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
 
-		prodUC.On("UpdateProduct", id, models.Product{
+		prodUC.On("UpdateProduct", req.Context(), id, models.Product{
 			Name:        formData.Get("name"),
 			Price:       price,
 			Description: formData.Get("description"),
@@ -214,7 +307,7 @@ func TestUpdateProduct(t *testing.T) {
 			Stock:       stock,
 			Seller:      formData.Get("seller"),
 			UserId:      user.ID,
-		}, img).Return(&models.ProdResponse{}, nil)
+		}, images).Return(&models.ProdResponse{}, nil)
 
 		h.UpdateProduct(rr, req)
 
@@ -244,7 +337,7 @@ func TestDeleteProduct(t *testing.T) {
 		rCtx.URLParams.Add("id", id.String())
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 
-		prodUC.On("DeleteProduct", id).Return(nil)
+		prodUC.On("DeleteProduct", req.Context(), id).Return(nil)
 
 		h.DeleteProduct(rr, req)
 
@@ -266,7 +359,7 @@ func TestCreateProductReview(t *testing.T) {
 		formData := url.Values{
 			"rating":    {"5"},
 			"comment":   {"test"},
-			"productId": {"test"},
+			"productId": {uuid.NewString()},
 		}
 
 		payload, ct, _ := utils.CreateMultipartForm(formData)
@@ -299,7 +392,7 @@ func TestCreateProductReview(t *testing.T) {
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
 
-		prodUC.On("CreateProductReview", review).Return(nil)
+		prodUC.On("CreateProductReview", req.Context(), review).Return(nil)
 
 		h.CreateProductReview(rr, req)
 
@@ -324,7 +417,7 @@ func TestGetProductReviews(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		prodUC.On("GetProductReviews", id).Return([]models.Reviews{}, nil)
+		prodUC.On("GetProductReviews", req.Context(), id).Return([]models.Reviews{}, nil)
 
 		h.GetProductReviews(rr, req)
 
@@ -354,8 +447,10 @@ func TestDeleteProductReview(t *testing.T) {
 
 		parsedProdId, _ := uuid.Parse(productId)
 		parsedReviewId, _ := uuid.Parse(reviewId)
+		user := &models.User{ID: uuid.New()}
+		req = req.WithContext(context.WithValue(req.Context(), UserContextKey, user))
 
-		prodUC.On("DeleteProductReview", parsedProdId, parsedReviewId).Return(nil)
+		prodUC.On("DeleteProductReview", req.Context(), user, parsedProdId, parsedReviewId).Return(nil)
 
 		h.DeleteProductReview(rr, req)
 

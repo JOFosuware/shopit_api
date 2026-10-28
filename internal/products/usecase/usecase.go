@@ -1,14 +1,19 @@
 package usecase
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"mime/multipart"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/products"
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 )
+
+const cloudinaryUploadTimeout = 5 * time.Minute
 
 // ProductsUC provides product-related use cases.
 type ProductsUC struct {
@@ -25,38 +30,33 @@ func NewProductsUC(cld cloudinary.CloudUploader, repo products.Repo) *ProductsUC
 }
 
 // CreateProduct creates a new product and uploads its images to cloudinary.
-func (p *ProductsUC) CreateProduct(prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
-	prod, err := p.repo.InsertProduct(&prod)
+func (p *ProductsUC) CreateProduct(ctx context.Context, prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
+	prod, err := p.repo.InsertProduct(ctx, &prod)
 	if err != nil {
-		return nil, fmt.Errorf("error saving product: %v", err)
+		return nil, fmt.Errorf("saving product: %w", err)
 	}
 
-	// Upload images to cloudinary and save their urls
-	for _, imgHeader := range img {
-		image, err := imgHeader.Open()
-		if err != nil {
-			return nil, fmt.Errorf("error opening image: %v", err)
+	imageRecords, publicIDs, err := p.uploadImages(ctx, img, prod.ProductId)
+	if err != nil {
+		return nil, errors.Join(err, p.repo.DeleteProductAndQueueImageCleanup(context.Background(), prod.ProductId, publicIDs))
+	}
+	for i, imageRecord := range imageRecords {
+		if i > 0 {
+			if err := p.repo.StageCloudinaryCleanup(ctx, publicIDs[i:]); err != nil {
+				return nil, errors.Join(
+					fmt.Errorf("renewing staged image cleanup before saving images: %w", err),
+					p.repo.DeleteProductAndQueueImageCleanup(context.Background(), prod.ProductId, publicIDs),
+				)
+			}
 		}
-
-		res, err := p.cld.UploadToCloud("products", image)
+		imageRecord, err = p.repo.InsertImageUrl(ctx, &imageRecord)
 		if err != nil {
-			return nil, fmt.Errorf("error uploading image: %v", err)
+			return nil, errors.Join(
+				fmt.Errorf("saving image URL: %w", err),
+				p.repo.DeleteProductAndQueueImageCleanup(context.Background(), prod.ProductId, publicIDs),
+			)
 		}
-
-		var img models.Images
-
-		img.PublicId = res.PublicID
-		img.Url = res.URL
-		img.ProductId = prod.ProductId
-
-		// saving image url
-		img, err = p.repo.InsertImageUrl(&img)
-		if err != nil {
-			return nil, fmt.Errorf("error saving image url: %v", err)
-		}
-
-		prod.Images = append(prod.Images, img)
-		image.Close()
+		prod.Images = append(prod.Images, imageRecord)
 	}
 
 	pr := models.ProdResponse{
@@ -68,25 +68,32 @@ func (p *ProductsUC) CreateProduct(prod models.Product, img []*multipart.FileHea
 }
 
 // GetProducts returns products filtered by keyword with pagination.
-func (p *ProductsUC) GetProducts(keyword string, page int) (*models.GetProd, error) {
-	prods, count, err := p.repo.FetchProductByName(keyword, page)
+func (p *ProductsUC) GetProducts(ctx context.Context, keyword string, page int) (*models.GetProd, error) {
+	if !products.IsValidProductPage(page) {
+		return nil, products.ErrInvalidPage
+	}
+	prods, productCount, filteredCount, err := p.repo.FetchProductByName(ctx, keyword, page)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching products: %v", err)
+		return nil, fmt.Errorf("fetching products: %w", err)
 	}
 
-	for i, prod := range prods {
-		img, err := p.repo.FetchImageUrlById(prod.ProductId)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching image url: %v", err)
-		}
-		prods[i].Images = img
+	productIDs := make([]uuid.UUID, len(prods))
+	for i := range prods {
+		productIDs[i] = prods[i].ProductId
+	}
+	imagesByProductID, err := p.repo.FetchImagesByProductIDs(ctx, productIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching image URLs: %w", err)
+	}
+	for i := range prods {
+		prods[i].Images = imagesByProductID[prods[i].ProductId]
 	}
 
 	jr := models.GetProd{
 		Success:               true,
-		ProductCount:          count,
-		ResPerPage:            4,
-		FilteredProductsCount: len(prods),
+		ProductCount:          productCount,
+		ResPerPage:            products.ProductsPerPage,
+		FilteredProductsCount: filteredCount,
 		Products:              prods,
 	}
 
@@ -94,30 +101,30 @@ func (p *ProductsUC) GetProducts(keyword string, page int) (*models.GetProd, err
 }
 
 // GetAdminProducts returns all products for admin.
-func (p *ProductsUC) GetAdminProducts() ([]*models.Product, error) {
-	prods, err := p.repo.FetchAllProducts()
+func (p *ProductsUC) GetAdminProducts(ctx context.Context) ([]*models.Product, error) {
+	prods, err := p.repo.FetchAllProducts(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching products: %v", err)
+		return nil, fmt.Errorf("fetching products: %w", err)
 	}
 
 	return prods, nil
 }
 
 // GetSingleProduct returns a product by ID, including images and reviews.
-func (p *ProductsUC) GetSingleProduct(id uuid.UUID) (*models.Product, error) {
-	prod, err := p.repo.FetchProductById(id)
+func (p *ProductsUC) GetSingleProduct(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	prod, err := p.repo.FetchProductById(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching product: %v", err)
+		return nil, fmt.Errorf("fetching product: %w", err)
 	}
 
-	img, err := p.repo.FetchImageUrlById(prod.ProductId)
+	img, err := p.repo.FetchImageUrlById(ctx, prod.ProductId)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching image url: %v", err)
+		return nil, fmt.Errorf("fetching image URLs: %w", err)
 	}
 
-	review, err := p.repo.FetchReviewById(prod.ProductId)
+	review, err := p.repo.FetchReviewById(ctx, prod.ProductId)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching review: %v", err)
+		return nil, fmt.Errorf("fetching product reviews: %w", err)
 	}
 
 	prod.Images = img
@@ -127,54 +134,29 @@ func (p *ProductsUC) GetSingleProduct(id uuid.UUID) (*models.Product, error) {
 }
 
 // UpdateProduct updates a product's details and images by ID.
-func (p *ProductsUC) UpdateProduct(id uuid.UUID, prod models.Product, img []*multipart.File) (*models.ProdResponse, error) {
-	// Fetch existing images
-	images, err := p.repo.FetchImageUrlById(id)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching image url: %v", err)
-	}
-
+func (p *ProductsUC) UpdateProduct(ctx context.Context, id uuid.UUID, prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
+	var images []models.Images
+	var err error
 	if len(img) > 0 {
-		// Delete existing images from cloudinary
-		for _, img := range images {
-			_, err := p.cld.Destroy(img.PublicId)
-			if err != nil {
-				return nil, fmt.Errorf("error deleting image from cloudinary: %v", err)
-			}
-		}
-
-		// DeleteImageUrlById deletes all existing images of a particular product from database
-		err = p.repo.DeleteImageUrlById(id)
+		var publicIDs []string
+		images, publicIDs, err = p.uploadImages(ctx, img, id)
 		if err != nil {
-			return nil, fmt.Errorf("error deleting images from database: %v", err)
+			return nil, errors.Join(err, p.repo.ScheduleCloudinaryCleanup(context.Background(), publicIDs))
 		}
 
-		// Upload new images to cloudinary and save their urls
-		images = []models.Images{}
-		for _, img := range img {
-			res, err := p.cld.UploadToCloud("products", img)
-			if err != nil {
-				return nil, fmt.Errorf("error uploading image to cloudinary: %v", err)
-			}
-
-			var img models.Images
-			img.PublicId = res.PublicID
-			img.Url = res.URL
-			img.ProductId = id
-
-			// Save image url to database
-			img, err = p.repo.InsertImageUrl(&img)
-			if err != nil {
-				return nil, fmt.Errorf("error saving image url: %v", err)
-			}
-
-			images = append(images, img)
+		prod, images, err = p.repo.UpdateProductWithImages(ctx, id, &prod, images)
+		if err != nil {
+			return nil, fmt.Errorf("updating product and replacing image records: %w", err)
 		}
-	}
-
-	prod, err = p.repo.UpdateProduct(id, &prod)
-	if err != nil {
-		return nil, fmt.Errorf("error updating product: %v", err)
+	} else {
+		prod, err = p.repo.UpdateProduct(ctx, id, &prod)
+		if err != nil {
+			return nil, fmt.Errorf("updating product: %w", err)
+		}
+		images, err = p.repo.FetchImageUrlById(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("fetching image URLs: %w", err)
+		}
 	}
 
 	prod.Images = images
@@ -187,105 +169,116 @@ func (p *ProductsUC) UpdateProduct(id uuid.UUID, prod models.Product, img []*mul
 	return &res, nil
 }
 
-// DeleteProduct deletes a product and its images by ID.
-func (p *ProductsUC) DeleteProduct(id uuid.UUID) error {
-	// Fetch existing images
-	img, err := p.repo.FetchImageUrlById(id)
-	if err != nil {
-		return fmt.Errorf("error fetching image url: %v", err)
-	}
-
-	// Delete existing images from cloudinary
-	for _, img := range img {
-		_, err := p.cld.Destroy(img.PublicId)
-		if err != nil {
-			return fmt.Errorf("error deleting image from cloudinary: %v", err)
+func (p *ProductsUC) uploadImages(ctx context.Context, headers []*multipart.FileHeader, productID uuid.UUID) ([]models.Images, []string, error) {
+	images := make([]models.Images, 0, len(headers))
+	stagedIDs := make([]string, 0, len(headers))
+	cleanupIDs := make([]string, 0, len(headers))
+	for _, header := range headers {
+		if header == nil {
+			err := errors.New("image file header is nil")
+			return nil, cleanupIDs, errors.Join(err, p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs))
 		}
+		image, err := header.Open()
+		if err != nil {
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("opening image: %w", err),
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		publicID := uuid.NewString()
+		expectedPublicID := "products/" + publicID
+		stagedIDs = append(stagedIDs, expectedPublicID)
+		if err := p.repo.StageCloudinaryCleanup(ctx, stagedIDs); err != nil {
+			closeErr := image.Close()
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("staging uploaded image for cleanup: %w", err),
+				closeErr,
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		uploadCtx, cancelUpload := context.WithTimeout(ctx, cloudinaryUploadTimeout)
+		uploaded, uploadErr := p.cld.UploadToCloudWithPublicID(uploadCtx, "products", publicID, image)
+		cancelUpload()
+		closeErr := image.Close()
+		if uploadErr != nil {
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("%w: uploading image to Cloudinary: %w", products.ErrImageUploadFailed, uploadErr),
+				closeErr,
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		if uploaded == nil {
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("%w: Cloudinary returned an empty upload result", products.ErrImageUploadFailed),
+				closeErr,
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		if uploaded.PublicID == "" || uploaded.URL == "" || uploaded.PublicID != expectedPublicID {
+			cleanupIDs = append(cleanupIDs, expectedPublicID)
+			if uploaded.PublicID != "" && uploaded.PublicID != expectedPublicID {
+				cleanupIDs = append(cleanupIDs, uploaded.PublicID)
+			}
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("%w: Cloudinary returned an incomplete or unexpected upload result", products.ErrImageUploadFailed),
+				closeErr,
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		cleanupIDs = append(cleanupIDs, expectedPublicID)
+		if closeErr != nil {
+			return nil, cleanupIDs, errors.Join(
+				fmt.Errorf("closing image: %w", closeErr),
+				p.repo.ScheduleCloudinaryCleanup(context.Background(), cleanupIDs),
+			)
+		}
+		images = append(images, models.Images{
+			PublicId:  uploaded.PublicID,
+			Url:       uploaded.URL,
+			ProductId: productID,
+		})
 	}
+	return images, cleanupIDs, nil
+}
 
-	// Delete the product
-	err = p.repo.DeleteProductById(id)
+// DeleteProduct deletes a product and its images by ID.
+func (p *ProductsUC) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	err := p.repo.DeleteProductAndQueueImageCleanup(ctx, id, nil)
 	if err != nil {
-		return fmt.Errorf("error deleting product: %v", err)
+		return fmt.Errorf("deleting product: %w", err)
 	}
-
 	return nil
 }
 
-// CreateProductReview creates and persists a product review, updating aggregate ratings.
-func (p *ProductsUC) CreateProductReview(review models.Reviews) error {
-	product, err := p.repo.FetchProductById(review.ProductId)
-	if err != nil {
-		return fmt.Errorf("error fetching product: %v", err)
+// CreateProductReview creates a review and updates product aggregates atomically.
+func (p *ProductsUC) CreateProductReview(ctx context.Context, review models.Reviews) error {
+	if review.Rating < 1 || review.Rating > 5 {
+		return products.ErrInvalidRating
 	}
-
-	reviews, err := p.repo.FetchReviewById(review.ProductId)
-	if err != nil {
-		return fmt.Errorf("error fetching reviews: %v", err)
+	if err := p.repo.InsertReviewAndUpdateProduct(ctx, &review); err != nil {
+		return fmt.Errorf("creating product review: %w", err)
 	}
-
-	reviews = append(reviews, review)
-	product.NumOfReviews = len(reviews)
-
-	err = p.repo.InsertReview(&review)
-	if err != nil {
-		return fmt.Errorf("error inserting reviews: %v", err)
-	}
-
-	var totalRating = 0
-	for _, rv := range reviews {
-		totalRating += rv.Rating
-	}
-
-	product.Ratings = totalRating / len(reviews)
-	_, err = p.repo.UpdateProduct(review.ProductId, product)
-
-	if err != nil {
-		return fmt.Errorf("error updating product: %v", err)
-	}
-
 	return nil
 }
 
 // GetProductReviews returns all reviews for a product.
-func (p *ProductsUC) GetProductReviews(id uuid.UUID) ([]models.Reviews, error) {
-	reviews, err := p.repo.FetchReviewById(id)
+func (p *ProductsUC) GetProductReviews(ctx context.Context, id uuid.UUID) ([]models.Reviews, error) {
+	reviews, err := p.repo.FetchReviewById(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching reviews: %v", err)
+		return nil, fmt.Errorf("fetching product reviews: %w", err)
 	}
 
 	return reviews, nil
 }
 
 // DeleteProductReview deletes a review and updates the product's ratings.
-func (p *ProductsUC) DeleteProductReview(productId uuid.UUID, reviewId uuid.UUID) error {
-	err := p.repo.DeleteReviewById(reviewId)
+func (p *ProductsUC) DeleteProductReview(ctx context.Context, actor *models.User, productID, reviewID uuid.UUID) error {
+	if actor == nil {
+		return errors.New("authenticated user is required to delete a review")
+	}
+	err := p.repo.DeleteReviewAndUpdateProduct(ctx, productID, reviewID, actor.ID, actor.Role == "admin")
 	if err != nil {
-		return fmt.Errorf("error deleting review: %v", err)
+		return fmt.Errorf("deleting product review: %w", err)
 	}
-
-	product, err := p.repo.FetchProductById(productId)
-	if err != nil {
-		return fmt.Errorf("error fetching product: %v", err)
-	}
-
-	reviews, err := p.repo.FetchReviewById(productId)
-	if err != nil {
-		return fmt.Errorf("error fetching reviews: %v", err)
-	}
-
-	var totalRating = 0
-	for _, rv := range reviews {
-		totalRating += rv.Rating
-	}
-
-	product.Ratings = totalRating / len(reviews)
-	product.NumOfReviews = len(reviews)
-
-	_, err = p.repo.UpdateProduct(productId, product)
-	if err != nil {
-		return fmt.Errorf("error updating product: %v", err)
-	}
-
 	return nil
 }

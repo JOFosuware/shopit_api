@@ -1,16 +1,53 @@
 package usecase_test
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"mime/multipart"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/cloudinary/cloudinary-go/api/uploader"
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
+	productdomain "github.com/jofosuware/go/shopit/internal/products"
 	mockProd "github.com/jofosuware/go/shopit/internal/products/mocks"
 	"github.com/jofosuware/go/shopit/internal/products/usecase"
 	mockCloudinary "github.com/jofosuware/go/shopit/pkg/cloudinary/mocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func expectProductImageUpload(t *testing.T, cld *mockCloudinary.CloudUploader, repo *mockProd.Repo, ctx context.Context, imageURL string) {
+	t.Helper()
+	repo.On("StageCloudinaryCleanup", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) >= 1 && strings.HasPrefix(ids[len(ids)-1], "products/")
+	})).Return(nil).Once()
+	cld.On(
+		"UploadToCloudWithPublicID",
+		mock.MatchedBy(func(uploadCtx context.Context) bool {
+			deadline, ok := uploadCtx.Deadline()
+			return ok && time.Until(deadline) <= 5*time.Minute && time.Until(deadline) > 0
+		}),
+		"products",
+		mock.MatchedBy(func(publicID string) bool {
+			_, err := uuid.Parse(publicID)
+			return err == nil
+		}),
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		repo.AssertCalled(t, "StageCloudinaryCleanup", ctx, []string{"products/" + args.String(2)})
+	}).Return(func(_ context.Context, folder, publicID string, _ interface{}) (*uploader.UploadResult, error) {
+		return &uploader.UploadResult{
+			PublicID: folder + "/" + publicID,
+			URL:      imageURL,
+		}, nil
+	})
+}
 
 // func TestCreateProduct(t *testing.T) {
 // 	cld := mockCloudinary.NewCloudUploader(t)
@@ -84,6 +121,7 @@ func TestGetProducts(t *testing.T) {
 	u := usecase.NewProductsUC(cld, repo)
 
 	t.Run("Get Products successfully", func(t *testing.T) {
+		ctx := context.Background()
 		var products []models.Product
 
 		products = append(products, models.Product{
@@ -96,13 +134,17 @@ func TestGetProducts(t *testing.T) {
 			Seller:      "test",
 		})
 
-		repo.On("FetchProductByName", "", 1).Return(products, 1, nil)
-		repo.On("FetchImageUrlById", products[0].ProductId).Return([]models.Images{}, nil)
+		repo.On("FetchProductByName", ctx, "", 1).Return(products, 3, 1, nil)
+		repo.On("FetchImagesByProductIDs", ctx, []uuid.UUID{products[0].ProductId}).
+			Return(map[uuid.UUID][]models.Images{products[0].ProductId: {}}, nil)
 
-		res, err := u.GetProducts("", 1)
+		res, err := u.GetProducts(ctx, "", 1)
 
 		require.NoError(t, err)
 		assert.NotNil(t, res)
+		assert.Equal(t, 3, res.ProductCount)
+		assert.Equal(t, 1, res.FilteredProductsCount)
+		assert.Equal(t, 12, res.ResPerPage)
 	})
 }
 
@@ -113,8 +155,9 @@ func TestGetAdminProducts(t *testing.T) {
 	u := usecase.NewProductsUC(cld, repo)
 
 	t.Run("Get Admin Products successfully", func(t *testing.T) {
-		repo.On("FetchAllProducts").Return([]*models.Product{}, nil)
-		prods, err := u.GetAdminProducts()
+		ctx := context.Background()
+		repo.On("FetchAllProducts", ctx).Return([]*models.Product{}, nil)
+		prods, err := u.GetAdminProducts(ctx)
 		require.NoError(t, err)
 
 		assert.NotNil(t, prods)
@@ -129,16 +172,115 @@ func TestGetSingleProduct(t *testing.T) {
 
 	t.Run("Get Single Product successfully", func(t *testing.T) {
 		id := uuid.New()
+		ctx := context.Background()
 
-		repo.On("FetchProductById", id).Return(&models.Product{ProductId: id}, nil)
-		repo.On("FetchImageUrlById", id).Return([]models.Images{}, nil)
-		repo.On("FetchReviewById", id).Return([]models.Reviews{}, nil)
+		repo.On("FetchProductById", ctx, id).Return(&models.Product{ProductId: id}, nil)
+		repo.On("FetchImageUrlById", ctx, id).Return([]models.Images{}, nil)
+		repo.On("FetchReviewById", ctx, id).Return([]models.Reviews{}, nil)
 
-		prod, err := u.GetSingleProduct(id)
+		prod, err := u.GetSingleProduct(ctx, id)
 		require.NoError(t, err)
 
 		assert.NotNil(t, prod)
 	})
+}
+
+func TestUpdateProductWithoutReplacementImagesKeepsExistingImages(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	ctx := context.Background()
+	productID := uuid.New()
+	product := models.Product{Name: "Updated product", ProductId: productID}
+	existingImages := []models.Images{{PublicId: "existing-image", ProductId: productID}}
+	repo.On("UpdateProduct", ctx, productID, &product).Return(product, nil)
+	repo.On("FetchImageUrlById", ctx, productID).Return(existingImages, nil)
+
+	response, err := u.UpdateProduct(ctx, productID, product, nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Equal(t, existingImages, response.Product.Images)
+	repo.AssertNotCalled(t, "UpdateProductWithImages", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateProductWithImagesUsesAtomicRepositoryOperation(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	productID := uuid.New()
+	product := models.Product{Name: "Updated product", ProductId: productID}
+	uploadedImage := models.Images{
+		Url:       "https://example.test/replacement.jpg",
+		ProductId: productID,
+	}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	file, err := writer.CreateFormFile("images", "image.jpg")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("image contents"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	request := httptest.NewRequest("PUT", "/", payload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(1<<20))
+	imageHeaders := request.MultipartForm.File["images"]
+	ctx := context.Background()
+
+	expectProductImageUpload(t, cld, repo, ctx, uploadedImage.Url)
+	repo.On("UpdateProductWithImages", ctx, productID, &product, mock.MatchedBy(func(images []models.Images) bool {
+		return len(images) == 1 && strings.HasPrefix(images[0].PublicId, "products/") &&
+			images[0].Url == uploadedImage.Url && images[0].ProductId == productID
+	})).Return(func(_ context.Context, _ uuid.UUID, product *models.Product, images []models.Images) (models.Product, []models.Images, error) {
+		return *product, images, nil
+	})
+
+	response, err := u.UpdateProduct(ctx, productID, product, imageHeaders)
+
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Len(t, response.Product.Images, 1)
+	require.True(t, strings.HasPrefix(response.Product.Images[0].PublicId, "products/"))
+	require.Equal(t, uploadedImage.Url, response.Product.Images[0].Url)
+	repo.AssertNotCalled(t, "UpdateProduct", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateProductFailureLeavesStagedCleanupForAmbiguousCommit(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	productID := uuid.New()
+	product := models.Product{Name: "Updated product", ProductId: productID}
+	uploadedImage := models.Images{
+		Url:       "https://example.test/replacement.jpg",
+		ProductId: productID,
+	}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	file, err := writer.CreateFormFile("images", "image.jpg")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("image contents"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	request := httptest.NewRequest("PUT", "/", payload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(1<<20))
+	imageHeaders := request.MultipartForm.File["images"]
+	ctx := context.Background()
+
+	expectProductImageUpload(t, cld, repo, ctx, uploadedImage.Url)
+	repo.On("UpdateProductWithImages", ctx, productID, &product, mock.MatchedBy(func(images []models.Images) bool {
+		return len(images) == 1 && strings.HasPrefix(images[0].PublicId, "products/")
+	})).Return(models.Product{}, []models.Images(nil), errors.New("commit result is unknown"))
+
+	response, err := u.UpdateProduct(ctx, productID, product, imageHeaders)
+
+	require.Error(t, err)
+	assert.Nil(t, response)
+	repo.AssertNotCalled(t, "ScheduleCloudinaryCleanup", mock.Anything, mock.Anything)
 }
 
 // func TestUpdateProduct(t *testing.T) {
@@ -165,18 +307,19 @@ func TestDeleteProduct(t *testing.T) {
 
 	t.Run("Delete Product successfully", func(t *testing.T) {
 		id := uuid.New()
-		i := []models.Images{
-			{
-				PublicId: "test",
-			},
-		}
+		repo.On("DeleteProductAndQueueImageCleanup", mock.Anything, id, mock.Anything).Return(nil)
 
-		repo.On("FetchImageUrlById", id).Return(i, nil)
-		cld.On("Destroy", i[0].PublicId).Return(nil, nil)
-		repo.On("DeleteProductById", id).Return(nil)
-
-		err := u.DeleteProduct(id)
+		err := u.DeleteProduct(context.Background(), id)
 		require.NoError(t, err)
+	})
+
+	t.Run("product deletion succeeds after durable image-cleanup scheduling", func(t *testing.T) {
+		id := uuid.New()
+		repo.On("DeleteProductAndQueueImageCleanup", mock.Anything, id, []string(nil)).Return(nil)
+
+		err := u.DeleteProduct(context.Background(), id)
+		require.NoError(t, err)
+		repo.AssertCalled(t, "DeleteProductAndQueueImageCleanup", mock.Anything, id, mock.Anything)
 	})
 }
 
@@ -195,19 +338,10 @@ func TestCreateProductReview(t *testing.T) {
 			UserId:    uuid.New(),
 		}
 
-		product := models.Product{
-			Reviews: []models.Reviews{review},
-		}
+		ctx := context.Background()
+		repo.On("InsertReviewAndUpdateProduct", ctx, &review).Return(nil)
 
-		repo.On("FetchProductById", review.ProductId).Return(&product, nil)
-		repo.On("FetchReviewById", review.ProductId).Return([]models.Reviews{review}, nil)
-		repo.On("InsertReview", &review).Return(nil)
-
-		product.NumOfReviews = 1
-		product.Ratings = 5
-		repo.On("UpdateProduct", review.ProductId, &product).Return(product, nil)
-
-		err := u.CreateProductReview(review)
+		err := u.CreateProductReview(ctx, review)
 		require.NoError(t, err)
 	})
 }
@@ -229,9 +363,9 @@ func TestGetProductReviews(t *testing.T) {
 			UserId:    uuid.New(),
 		}
 
-		repo.On("FetchReviewById", id).Return([]models.Reviews{rvs}, nil)
+		repo.On("FetchReviewById", context.Background(), id).Return([]models.Reviews{rvs}, nil)
 
-		reviews, err := u.GetProductReviews(id)
+		reviews, err := u.GetProductReviews(context.Background(), id)
 		require.NoError(t, err)
 
 		assert.NotNil(t, reviews)
@@ -247,33 +381,182 @@ func TestDeleteProductReview(t *testing.T) {
 	t.Run("Delete Product Review successfully", func(t *testing.T) {
 		productId := uuid.New()
 		reviewId := uuid.New()
+		ctx := context.Background()
+		actor := &models.User{ID: uuid.New(), Role: "user"}
 
-		product := models.Product{
-			Ratings:      5,
-			NumOfReviews: 1,
-		}
+		repo.On("DeleteReviewAndUpdateProduct", ctx, productId, reviewId, actor.ID, false).Return(nil)
 
-		reviews := []models.Reviews{
-			{
-				ProductId: productId,
-				Rating:    5,
-			},
-		}
-
-		repo.On("DeleteReviewById", reviewId).Return(nil)
-		repo.On("FetchProductById", productId).Return(&product, nil)
-		repo.On("FetchReviewById", productId).Return(reviews, nil)
-
-		var totalRating = 0
-		for _, rv := range reviews {
-			totalRating += rv.Rating
-		}
-
-		product.Ratings = totalRating / len(reviews)
-		product.NumOfReviews = len(reviews)
-		repo.On("UpdateProduct", productId, &product).Return(models.Product{}, nil)
-
-		err := u.DeleteProductReview(productId, reviewId)
+		err := u.DeleteProductReview(ctx, actor, productId, reviewId)
 		require.NoError(t, err)
 	})
+}
+
+func TestCreateProductCleansUpProductWhenImageUploadFails(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	product := models.Product{
+		ProductId: uuid.New(),
+		Name:      "test product",
+	}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	file, err := writer.CreateFormFile("images", "image.jpg")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("image contents"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest("POST", "/", payload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(1<<20))
+	imageHeaders := request.MultipartForm.File["images"]
+
+	uploadErr := errors.New("Cloudinary unavailable")
+	ctx := context.Background()
+	var ambiguousPublicID string
+	repo.On("InsertProduct", ctx, &product).Return(product, nil)
+	repo.On("StageCloudinaryCleanup", ctx, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 1 && strings.HasPrefix(ids[0], "products/")
+	})).Run(func(args mock.Arguments) {
+		ambiguousPublicID = args.Get(1).([]string)[0]
+	}).Return(nil)
+	cld.On("UploadToCloudWithPublicID", mock.Anything, "products", mock.Anything, mock.Anything).
+		Return((*uploader.UploadResult)(nil), uploadErr)
+	repo.On("ScheduleCloudinaryCleanup", mock.Anything, mock.Anything).Return(nil)
+	repo.On("DeleteProductAndQueueImageCleanup", mock.Anything, product.ProductId, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) == 0
+	})).Return(nil)
+
+	response, err := u.CreateProduct(ctx, product, imageHeaders)
+	require.ErrorIs(t, err, uploadErr)
+	require.ErrorIs(t, err, productdomain.ErrImageUploadFailed)
+	assert.Nil(t, response)
+	require.NotEmpty(t, ambiguousPublicID)
+	repo.AssertNotCalled(t, "ScheduleCloudinaryCleanup", mock.Anything, mock.MatchedBy(func(ids []string) bool {
+		return len(ids) > 0 && ids[0] == ambiguousPublicID
+	}))
+	repo.AssertCalled(t, "DeleteProductAndQueueImageCleanup", mock.Anything, product.ProductId, []string{})
+}
+
+func TestCreateProductStagesUploadedAssetsUntilImageRecordIsSaved(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	product := models.Product{ProductId: uuid.New(), Name: "test product"}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	file, err := writer.CreateFormFile("images", "image.jpg")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("image contents"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest("POST", "/", payload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(1<<20))
+	imageHeaders := request.MultipartForm.File["images"]
+
+	uploadedImage := models.Images{
+		Url:       "https://example.test/image.jpg",
+		ProductId: product.ProductId,
+	}
+	ctx := context.Background()
+	repo.On("InsertProduct", ctx, &product).Return(product, nil)
+	expectProductImageUpload(t, cld, repo, ctx, uploadedImage.Url)
+	repo.On("InsertImageUrl", ctx, mock.MatchedBy(func(image *models.Images) bool {
+		return image != nil && strings.HasPrefix(image.PublicId, "products/") &&
+			image.Url == uploadedImage.Url && image.ProductId == product.ProductId
+	})).Return(func(_ context.Context, image *models.Images) (models.Images, error) {
+		return *image, nil
+	})
+
+	response, err := u.CreateProduct(ctx, product, imageHeaders)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Len(t, response.Product.Images, 1)
+	assert.True(t, strings.HasPrefix(response.Product.Images[0].PublicId, "products/"))
+}
+
+func TestCreateProductRenewsAllStagedImagesBetweenUploads(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	product := models.Product{ProductId: uuid.New(), Name: "test product"}
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	for _, name := range []string{"first.jpg", "second.jpg"} {
+		file, err := writer.CreateFormFile("images", name)
+		require.NoError(t, err)
+		_, err = file.Write([]byte(name))
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest("POST", "/", payload)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	require.NoError(t, request.ParseMultipartForm(1<<20))
+	imageHeaders := request.MultipartForm.File["images"]
+
+	ctx := context.Background()
+	repo.On("InsertProduct", ctx, &product).Return(product, nil)
+	stagedIDs := make([][]string, 0, len(imageHeaders))
+	repo.On("StageCloudinaryCleanup", ctx, mock.Anything).
+		Run(func(args mock.Arguments) {
+			ids := args.Get(1).([]string)
+			stagedIDs = append(stagedIDs, append([]string(nil), ids...))
+		}).
+		Return(nil).
+		Times(2*len(imageHeaders) - 1)
+
+	uploadedIDs := make([]string, 0, len(imageHeaders))
+	cld.On(
+		"UploadToCloudWithPublicID",
+		mock.MatchedBy(func(uploadCtx context.Context) bool {
+			deadline, ok := uploadCtx.Deadline()
+			return ok && time.Until(deadline) <= 5*time.Minute && time.Until(deadline) > 0
+		}),
+		"products",
+		mock.Anything,
+		mock.Anything,
+	).Run(func(args mock.Arguments) {
+		require.Len(t, stagedIDs, len(uploadedIDs)+1)
+		expectedID := "products/" + args.String(2)
+		require.Equal(t, expectedID, stagedIDs[len(stagedIDs)-1][len(stagedIDs[len(stagedIDs)-1])-1])
+		uploadedIDs = append(uploadedIDs, expectedID)
+	}).Return(func(_ context.Context, folder, publicID string, _ interface{}) (*uploader.UploadResult, error) {
+		return &uploader.UploadResult{
+			PublicID: folder + "/" + publicID,
+			URL:      "https://example.test/" + publicID + ".jpg",
+		}, nil
+	}).Times(len(imageHeaders))
+
+	repo.On("InsertImageUrl", ctx, mock.MatchedBy(func(image *models.Images) bool {
+		return image != nil && image.ProductId == product.ProductId
+	})).Return(func(_ context.Context, image *models.Images) (models.Images, error) {
+		return *image, nil
+	}).Twice()
+
+	response, err := u.CreateProduct(ctx, product, imageHeaders)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Len(t, response.Product.Images, 2)
+	require.Len(t, stagedIDs, 3)
+	require.Len(t, stagedIDs[0], 1)
+	require.Equal(t, uploadedIDs[0], stagedIDs[0][0])
+	require.Equal(t, uploadedIDs, stagedIDs[1])
+	require.Equal(t, uploadedIDs[1:], stagedIDs[2])
+}
+
+func TestCreateProductReviewRejectsInvalidRating(t *testing.T) {
+	cld := mockCloudinary.NewCloudUploader(t)
+	repo := mockProd.NewRepo(t)
+	u := usecase.NewProductsUC(cld, repo)
+
+	err := u.CreateProductReview(context.Background(), models.Reviews{Rating: 6})
+	require.ErrorIs(t, err, productdomain.ErrInvalidRating)
+	repo.AssertNotCalled(t, "InsertReviewAndUpdateProduct", mock.Anything, mock.Anything)
 }

@@ -202,6 +202,7 @@ The base URL for all endpoints is `/api/v1`.
 4.  **Run database migrations:**
 
     You will need a migration tool that works with your SQL files in the `migrations` directory.
+    Apply all pending migrations, including `20261028160000_create_cloudinary_cleanup_outbox` and `20261028164500_add_cleanup_ready_to_cloudinary_outbox`, before starting this version. Before each product image is uploaded, its caller-assigned Cloudinary public ID is durably staged as not ready for deletion. The cleanup worker processes only jobs explicitly marked ready. Once an image record is saved, its database transaction adopts it and removes its staged job. Confirmed uploads that are known to be unreferenced are explicitly queued for cleanup. Upload errors with an ambiguous provider outcome, ambiguous database commits, and process crashes can leave staged jobs pending indefinitely; this favors avoiding deletion of a live or late-arriving asset over automatic cleanup. Reconcile each pending ID against both Cloudinary and the image records, and confirm the upload request cannot still complete, before marking it ready for cleanup. The migration conservatively marks existing outbox jobs not ready because the previous schema cannot distinguish staged uploads from retry jobs.
 
 ### Running the Application
 

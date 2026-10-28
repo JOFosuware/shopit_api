@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	authHTTP "github.com/jofosuware/go/shopit/internal/auth/delivery"
 	authRepository "github.com/jofosuware/go/shopit/internal/auth/repository"
 	authUC "github.com/jofosuware/go/shopit/internal/auth/usecase"
@@ -8,6 +10,7 @@ import (
 	ordRepository "github.com/jofosuware/go/shopit/internal/orders/repository"
 	ordUC "github.com/jofosuware/go/shopit/internal/orders/usecase"
 	payHTTP "github.com/jofosuware/go/shopit/internal/payment/delivery"
+	productCleanup "github.com/jofosuware/go/shopit/internal/products/cleanup"
 	prodHTTP "github.com/jofosuware/go/shopit/internal/products/delivery"
 	prodRepository "github.com/jofosuware/go/shopit/internal/products/repository"
 	prodUC "github.com/jofosuware/go/shopit/internal/products/usecase"
@@ -36,6 +39,7 @@ func (s *Serve) Setup() {
 
 	// Product setups
 	prodRepo := prodRepository.NewProdRepository(s.DB)
+	s.productCleanupWorker = productCleanup.NewWorker(prodRepo, cld, s.logger, 30*time.Second)
 	prodUseCase := prodUC.NewProductsUC(cld, prodRepo)
 	prodHandlers = prodHTTP.NewProdHandlers(s.logger, prodUseCase)
 

@@ -49,9 +49,12 @@ type ProdResponse struct {
 }
 
 type GetProd struct {
-	Success               bool      `json:"success"`
-	ProductCount          int       `json:"productCount"`
-	ResPerPage            int       `json:"resPerPage"`
+	Success bool `json:"success"`
+	// ProductCount is the number of products in the catalog before filtering.
+	ProductCount int `json:"productCount"`
+	// ResPerPage is the maximum number of products returned in Products.
+	ResPerPage int `json:"resPerPage"`
+	// FilteredProductsCount is the total number matching the current filter, across all pages.
 	FilteredProductsCount int       `json:"filteredProductsCount"`
 	Products              []Product `json:"products"`
 }

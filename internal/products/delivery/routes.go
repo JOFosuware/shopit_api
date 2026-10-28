@@ -17,13 +17,17 @@ func (h *ProdHandlers) ProdRouter() http.Handler {
 	mux.Group(func(r chi.Router) {
 		r.Use(utils.IsAuthenticated)
 
-		r.Post("/new", h.CreateProduct)
-		r.Get("/admin/products", h.GetAdminProducts)
-		r.Put("/admin/product/{id}", h.UpdateProduct)
-		r.Delete("/admin/product/{id}", h.DeleteProduct)
 		r.Put("/review", h.CreateProductReview)
 		r.Get("/reviews", h.GetProductReviews)
 		r.Delete("/reviews", h.DeleteProductReview)
+
+		r.Group(func(r chi.Router) {
+			r.Use(utils.AdminOnly)
+			r.Post("/new", h.CreateProduct)
+			r.Get("/admin/products", h.GetAdminProducts)
+			r.Put("/admin/product/{id}", h.UpdateProduct)
+			r.Delete("/admin/product/{id}", h.DeleteProduct)
+		})
 	})
 
 	return mux

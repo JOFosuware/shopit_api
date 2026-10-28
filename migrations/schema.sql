@@ -164,6 +164,25 @@ CREATE TABLE public.reviews (
 ALTER TABLE public.reviews OWNER TO jofosuware;
 
 --
+-- Name: cloudinary_cleanup_jobs; Type: TABLE; Schema: public; Owner: jofosuware
+--
+
+CREATE TABLE public.cloudinary_cleanup_jobs (
+    public_id text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    locked_until timestamp with time zone,
+    last_error text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    cleanup_ready boolean DEFAULT true NOT NULL,
+    CONSTRAINT cloudinary_cleanup_jobs_attempts_check CHECK ((attempts >= 0))
+);
+
+
+ALTER TABLE public.cloudinary_cleanup_jobs OWNER TO jofosuware;
+
+
+--
 -- Name: schema_migration; Type: TABLE; Schema: public; Owner: jofosuware
 --
 
@@ -287,6 +306,13 @@ ALTER TABLE ONLY public.products
 ALTER TABLE ONLY public.reviews
     ADD CONSTRAINT reviews_pkey PRIMARY KEY (reviews_id);
 
+--
+-- Name: cloudinary_cleanup_jobs cloudinary_cleanup_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: jofosuware
+--
+
+ALTER TABLE ONLY public.cloudinary_cleanup_jobs
+    ADD CONSTRAINT cloudinary_cleanup_jobs_pkey PRIMARY KEY (public_id);
+
 
 --
 -- Name: schema_migration schema_migration_pkey; Type: CONSTRAINT; Schema: public; Owner: jofosuware
@@ -333,6 +359,12 @@ ALTER TABLE ONLY public.users
 --
 
 CREATE UNIQUE INDEX schema_migration_version_idx ON public.schema_migration USING btree (version);
+
+--
+-- Name: cloudinary_cleanup_jobs_available_idx; Type: INDEX; Schema: public; Owner: jofosuware
+--
+
+CREATE INDEX cloudinary_cleanup_jobs_available_idx ON public.cloudinary_cleanup_jobs USING btree (available_at, locked_until, created_at);
 
 
 --
@@ -524,4 +556,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT ALL ON TABLES TO jofosuware;
 --
 -- PostgreSQL database dump complete
 --
-

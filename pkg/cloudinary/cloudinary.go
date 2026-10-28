@@ -10,6 +10,7 @@ import (
 
 type CloudUploader interface {
 	UploadToCloud(folder string, data interface{}) (*uploader.UploadResult, error)
+	UploadToCloudWithPublicID(ctx context.Context, folder, publicID string, data interface{}) (*uploader.UploadResult, error)
 	Destroy(id string) (*uploader.DestroyResult, error)
 }
 
@@ -26,6 +27,17 @@ func NewCloudinary(cfg *config.Config) (*Cloudinary, error) {
 
 func (c *Cloudinary) UploadToCloud(folder string, data interface{}) (*uploader.UploadResult, error) {
 	res, err := c.cld.Upload.Upload(context.Background(), data, uploader.UploadParams{Folder: folder})
+	if err != nil {
+		return &uploader.UploadResult{}, err
+	}
+	return res, nil
+}
+
+func (c *Cloudinary) UploadToCloudWithPublicID(ctx context.Context, folder, publicID string, data interface{}) (*uploader.UploadResult, error) {
+	res, err := c.cld.Upload.Upload(ctx, data, uploader.UploadParams{
+		Folder:   folder,
+		PublicID: publicID,
+	})
 	if err != nil {
 		return &uploader.UploadResult{}, err
 	}

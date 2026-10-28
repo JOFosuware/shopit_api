@@ -6,6 +6,9 @@ package delivery
 
 import (
 	"errors"
+	"fmt"
+	"math"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 
@@ -15,7 +18,6 @@ import (
 	"github.com/jofosuware/go/shopit/internal/products"
 	"github.com/jofosuware/go/shopit/pkg/logger"
 	"github.com/jofosuware/go/shopit/pkg/utils"
-	"github.com/jofosuware/go/shopit/pkg/validator"
 )
 
 // UserContextKey is the request context key used to store the authenticated user.
@@ -40,65 +42,27 @@ func NewProdHandlers(logger logger.Logger, prodUC products.ProductUC) *ProdHandl
 // Expects form data: name, price, description, images, category, seller, stock.
 func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
-	if !ok {
-		_ = utils.BadRequest(w, r, errors.New("user must login as admin to perform this task"))
-		h.logger.Errorf("reading json error: %s", "user must login as admin to perform this task")
+	if !ok || user == nil {
+		_ = utils.InvalidCredentials(w)
 		return
 	}
-	var p models.Product
-
-	// Parse form
-	err := r.ParseMultipartForm(100000)
+	p, images, validationErrors, err := parseProductForm(r, user.ID)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("reading json error: %v", err)
+		h.writeBadRequest(w, "parsing product form", err)
+		return
+	}
+	if len(validationErrors) > 0 {
+		h.writeValidationError(w, r, "validating product form", validationErrors)
 		return
 	}
 
-	name := r.Form.Get("name")
-	price, _ := strconv.ParseFloat(r.Form.Get("price"), 64)
-	description := r.Form.Get("description")
-	ratings, _ := strconv.Atoi(r.Form.Get("ratings"))
-	multipartForm := r.MultipartForm
-	images := multipartForm.File["images"]
-	category := r.Form.Get("category")
-	seller := r.Form.Get("seller")
-	stock, _ := strconv.Atoi(r.Form.Get("stock"))
-
-	// validate data
-	v := validator.New()
-
-	v.Check(name != "", "name", "product name must be provided")
-	v.Check(description != "", "description", "product description must be provided")
-	v.Check(seller != "", "seller", "product seller must be provided")
-
-	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
-		return
-	}
-
-	p.Name = name
-	p.Price = price
-	p.Description = description
-	p.Category = category
-	p.Ratings = ratings
-	p.Seller = seller
-	p.Stock = stock
-	p.UserId = user.ID
-
-	res, err := h.prodUC.CreateProduct(p, images)
+	res, err := h.prodUC.CreateProduct(r.Context(), p, images)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error creating product: %v", err)
+		h.writeProductError(w, "creating product", err)
 		return
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, res)
 }
 
 // GetProducts returns a list of products.
@@ -106,29 +70,31 @@ func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 // Query params: keyword, page.
 func (h *ProdHandlers) GetProducts(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	page := 1
+	if pageParam := r.URL.Query().Get("page"); pageParam != "" {
+		var err error
+		page, err = strconv.Atoi(pageParam)
+		if err != nil || !products.IsValidProductPage(page) {
+			h.writeBadRequest(w, "parsing product page", products.ErrInvalidPage)
+			return
+		}
+	}
 
-	res, err := h.prodUC.GetProducts(keyword, page)
+	res, err := h.prodUC.GetProducts(r.Context(), keyword, page)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error getting products: %v", err)
+		h.writeProductError(w, "getting products", err)
 		return
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, res)
 }
 
 // GetAdminProducts returns all products (admin).
 // Endpoint: GET /api/v1/product/admin/products
 func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) {
-	prods, err := h.prodUC.GetAdminProducts()
+	prods, err := h.prodUC.GetAdminProducts(r.Context())
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error getting products: %v", err)
+		h.writeProductError(w, "getting admin products", err)
 		return
 	}
 
@@ -140,11 +106,7 @@ func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) 
 		Products: prods,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
 
 // GetSingleProduct returns a product by ID.
@@ -153,22 +115,19 @@ func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) 
 	id := chi.URLParam(r, "id")
 
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", errors.New("id is empty"))
+		h.writeBadRequest(w, "parsing product ID", errors.New("id is empty"))
 		return
 	}
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing product ID", err)
 		return
 	}
 
-	res, err := h.prodUC.GetSingleProduct(parsedId)
+	res, err := h.prodUC.GetSingleProduct(r.Context(), parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error getting product: %v", err)
+		h.writeProductError(w, "getting product", err)
 		return
 	}
 
@@ -177,11 +136,7 @@ func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) 
 		Product: *res,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
 
 // UpdateProduct updates a product (admin).
@@ -189,81 +144,88 @@ func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) 
 // Expects form data similar to product creation.
 func (h *ProdHandlers) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
-	if !ok {
-		_ = utils.BadRequest(w, r, errors.New("user must login as admin to perform this task"))
-		h.logger.Errorf("reading json error: %s", "user must login as admin to perform this task")
+	if !ok || user == nil {
+		_ = utils.InvalidCredentials(w)
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", errors.New("id is empty"))
+		h.writeBadRequest(w, "parsing product ID", errors.New("id is empty"))
 		return
 	}
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing product ID", err)
 		return
 	}
 
-	var p models.Product
-
-	// Parse form
-	err = r.ParseMultipartForm(100000)
+	p, images, validationErrors, err := parseProductForm(r, user.ID)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("reading json error: %v", err)
+		h.writeBadRequest(w, "parsing product form", err)
 		return
+	}
+	if len(validationErrors) > 0 {
+		h.writeValidationError(w, r, "validating product form", validationErrors)
+		return
+	}
+
+	res, err := h.prodUC.UpdateProduct(r.Context(), parsedId, p, images)
+	if err != nil {
+		h.writeProductError(w, "updating product", err)
+		return
+	}
+
+	_ = h.writeJSON(w, http.StatusOK, res)
+}
+
+func parseProductForm(r *http.Request, userID uuid.UUID) (models.Product, []*multipart.FileHeader, map[string]string, error) {
+	if err := r.ParseMultipartForm(100000); err != nil {
+		return models.Product{}, nil, nil, fmt.Errorf("parsing multipart form: %w", err)
 	}
 
 	name := r.Form.Get("name")
-	price, _ := strconv.ParseFloat(r.Form.Get("price"), 64)
 	description := r.Form.Get("description")
-	ratings, _ := strconv.Atoi(r.Form.Get("ratings"))
-	multipartForm := r.MultipartForm
-	images := multipartForm.File["images"]
-	img, _ := utils.ExtractImages(images)
-	category := r.Form.Get("category")
 	seller := r.Form.Get("seller")
-	stock, _ := strconv.Atoi(r.Form.Get("stock"))
-
-	// validate data
-	v := validator.New()
-
-	v.Check(name != "", "name", "product name must be provided")
-	v.Check(description != "", "description", "product description must be provided")
-	v.Check(seller != "", "seller", "product seller must be provided")
-
-	if !v.Valid() {
-		utils.FailedValidation(w, r, v.Errors)
-		h.logger.Errorf("Failed validation: %v", v.Errors)
-		return
+	validationErrors := make(map[string]string)
+	if name == "" || description == "" || seller == "" {
+		if name == "" {
+			validationErrors["name"] = "product name must be provided"
+		}
+		if description == "" {
+			validationErrors["description"] = "product description must be provided"
+		}
+		if seller == "" {
+			validationErrors["seller"] = "product seller must be provided"
+		}
 	}
 
-	p.Name = name
-	p.Price = price
-	p.Description = description
-	p.Category = category
-	p.Ratings = ratings
-	p.Seller = seller
-	p.Stock = stock
-	p.UserId = user.ID
-
-	res, err := h.prodUC.UpdateProduct(parsedId, p, img)
-	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error updating product: %v", err)
-		return
+	price, err := strconv.ParseFloat(r.Form.Get("price"), 64)
+	if err != nil || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+		validationErrors["price"] = "price must be a positive number"
+	}
+	stock, err := strconv.Atoi(r.Form.Get("stock"))
+	if err != nil || stock < 0 {
+		validationErrors["stock"] = "stock must be a non-negative integer"
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, res); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
+	var images []*multipart.FileHeader
+	if r.MultipartForm != nil {
+		images = r.MultipartForm.File["images"]
 	}
+	if len(validationErrors) > 0 {
+		return models.Product{}, nil, validationErrors, nil
+	}
+	return models.Product{
+		Name:        name,
+		Price:       price,
+		Description: description,
+		Category:    r.Form.Get("category"),
+		Seller:      seller,
+		Stock:       stock,
+		UserId:      userID,
+	}, images, nil, nil
 }
 
 // DeleteProduct deletes a product (admin).
@@ -272,38 +234,31 @@ func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", errors.New("id is empty"))
+		h.writeBadRequest(w, "parsing product ID", errors.New("id is empty"))
 		return
 	}
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing product ID", err)
 		return
 	}
 
-	err = h.prodUC.DeleteProduct(parsedId)
+	err = h.prodUC.DeleteProduct(r.Context(), parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error deleting product: %v", err)
+		h.writeProductError(w, "deleting product", err)
 		return
 	}
 
 	jr := struct {
-		success bool
-		message string
+		Success bool   `json:"success"`
+		Message string `json:"message"`
 	}{
-		success: true,
-		message: "product deleted successfully",
+		Success: true,
+		Message: "product deleted successfully",
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
 
 // CreateProductReview creates a new review for a product.
@@ -311,16 +266,14 @@ func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 // Expects form data: rating, comment, productId.
 func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
-	if !ok {
-		_ = utils.BadRequest(w, r, errors.New("user cannot be found, login"))
-		h.logger.Errorf("error getting user: %v", errors.New("user not found"))
+	if !ok || user == nil {
+		_ = utils.InvalidCredentials(w)
 		return
 	}
 
 	err := r.ParseMultipartForm(100000)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing form: %v", err)
+		h.writeBadRequest(w, "parsing product review form", err)
 		return
 	}
 
@@ -328,8 +281,20 @@ func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Reques
 	comment := r.Form.Get("comment")
 	productId := r.Form.Get("productId")
 
-	rtg, _ := strconv.Atoi(rating)
-	parsedProdId, _ := uuid.Parse(productId)
+	rtg, err := strconv.Atoi(rating)
+	if err != nil || rtg < 1 || rtg > 5 {
+		h.writeValidationError(w, r, "validating product review", map[string]string{
+			"rating": products.ErrInvalidRating.Error(),
+		})
+		return
+	}
+	parsedProdId, err := uuid.Parse(productId)
+	if err != nil {
+		h.writeValidationError(w, r, "validating product review", map[string]string{
+			"productId": "valid product ID must be provided",
+		})
+		return
+	}
 
 	review := models.Reviews{
 		UserId:    user.ID,
@@ -339,24 +304,19 @@ func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Reques
 		ProductId: parsedProdId,
 	}
 
-	err = h.prodUC.CreateProductReview(review)
+	err = h.prodUC.CreateProductReview(r.Context(), review)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error creating product review: %v", err)
+		h.writeProductError(w, "creating product review", err)
 		return
 	}
 
 	jr := struct {
-		success bool
+		Success bool `json:"success"`
 	}{
-		success: true,
+		Success: true,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
 
 // GetProductReviews returns reviews for a product.
@@ -365,22 +325,19 @@ func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Reques
 func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", errors.New("id is empty"))
+		h.writeBadRequest(w, "parsing product ID", errors.New("id is empty"))
 		return
 	}
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing product ID", err)
 		return
 	}
 
-	reviews, err := h.prodUC.GetProductReviews(parsedId)
+	reviews, err := h.prodUC.GetProductReviews(r.Context(), parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error getting product reviews: %v", err)
+		h.writeProductError(w, "getting product reviews", err)
 		return
 	}
 
@@ -392,11 +349,7 @@ func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request)
 		Reviews: reviews,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
 
 // DeleteProductReview deletes a product review.
@@ -406,28 +359,29 @@ func (h *ProdHandlers) DeleteProductReview(w http.ResponseWriter, r *http.Reques
 	productId := r.URL.Query().Get("productId")
 	reviewId := r.URL.Query().Get("id")
 	if productId == "" || reviewId == "" {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error retrieving ids: %v", errors.New("id is empty"))
+		h.writeBadRequest(w, "reading product and review IDs", errors.New("IDs must be provided"))
 		return
 	}
 	parsedProductId, err := uuid.Parse(productId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing product ID", err)
 		return
 	}
 
 	parsedId, err := uuid.Parse(reviewId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error parsing uuid: %v", err)
+		h.writeBadRequest(w, "parsing review ID", err)
 		return
 	}
 
-	err = h.prodUC.DeleteProductReview(parsedProductId, parsedId)
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok || user == nil {
+		_ = utils.InvalidCredentials(w)
+		return
+	}
+	err = h.prodUC.DeleteProductReview(r.Context(), user, parsedProductId, parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("something went wrong, try again"))
-		h.logger.Errorf("error deleting product review: %v", err)
+		h.writeProductError(w, "deleting product review", err)
 		return
 	}
 
@@ -437,9 +391,5 @@ func (h *ProdHandlers) DeleteProductReview(w http.ResponseWriter, r *http.Reques
 		Success: true,
 	}
 
-	if err = utils.WriteJSON(w, http.StatusOK, jr); err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error writing json: %v", err)
-		return
-	}
+	_ = h.writeJSON(w, http.StatusOK, jr)
 }
