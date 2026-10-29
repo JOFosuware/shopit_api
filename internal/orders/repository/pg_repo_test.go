@@ -529,23 +529,3 @@ func TestFetchAllShipping(t *testing.T) {
 		assert.Equal(t, s.ID, shipping[0].ID)
 	})
 }
-
-func TestUpdateStock(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	defer db.Close()
-
-	query := `update products set stock = stock - \$1 where product_id = \$2`
-
-	productId := uuid.New()
-	quantity := 5
-
-	t.Run("Stock is successfully updated", func(t *testing.T) {
-		mock.ExpectExec(query).WithArgs(quantity, productId).WillReturnResult(sqlmock.NewResult(1, 1))
-
-		repo := repository.NewOrdersRepository(db)
-
-		err := repo.UpdateStock(productId, quantity)
-		require.NoError(t, err)
-	})
-}

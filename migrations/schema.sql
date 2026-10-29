@@ -124,6 +124,21 @@ CREATE TABLE public.payments (
 ALTER TABLE public.payments OWNER TO jofosuware;
 
 --
+-- Name: order_payment_refunds; Type: TABLE; Schema: public; Owner: jofosuware
+--
+
+CREATE TABLE public.order_payment_refunds (
+    payment_id character varying(300) NOT NULL,
+    status character varying(20) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT order_payment_refunds_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'refunded'::character varying])::text[])))
+);
+
+
+ALTER TABLE public.order_payment_refunds OWNER TO jofosuware;
+
+--
 -- Name: products; Type: TABLE; Schema: public; Owner: jofosuware
 --
 

@@ -1,14 +1,29 @@
 package card
 
 import (
+	"context"
+	"errors"
+	"sync"
+
 	"github.com/stripe/stripe-go/v72"
 	"github.com/stripe/stripe-go/v72/paymentintent"
+	"github.com/stripe/stripe-go/v72/refund"
 )
+
+var stripeKeyOnce sync.Once
+
+func configureStripeKey(secret string) {
+	stripeKeyOnce.Do(func() {
+		stripe.Key = secret
+	})
+}
 
 // Carder is the interface to card type
 type Carder interface {
 	// CreatePaymentIntent attempts to get a payment intent object from Stripe
-	CreatePaymentIntent(currency string, amount int) (*stripe.PaymentIntent, string, error)
+	CreatePaymentIntent(ctx context.Context, currency string, amountCents int64, userID string) (*stripe.PaymentIntent, string, error)
+	RetrievePaymentIntent(ctx context.Context, id string) (*stripe.PaymentIntent, error)
+	RefundPaymentIntent(ctx context.Context, id string) error
 }
 
 // Card holds the information needed by this package
@@ -19,16 +34,20 @@ type Card struct {
 }
 
 // CreatePaymentIntent attempts to get a payment intent object from Stripe
-func (c *Card) CreatePaymentIntent(currency string, amount int) (*stripe.PaymentIntent, string, error) {
-	stripe.Key = c.Secret
+func (c *Card) CreatePaymentIntent(ctx context.Context, currency string, amountCents int64, userID string) (*stripe.PaymentIntent, string, error) {
+	if amountCents <= 0 || userID == "" || currency != "usd" || c.Secret == "" {
+		return nil, "", errors.New("payment amount, currency, user ID, and provider credentials must be valid")
+	}
+	configureStripeKey(c.Secret)
 
-	// create a payment intent
 	params := &stripe.PaymentIntentParams{
-		Amount:   stripe.Int64(int64(amount)),
+		Amount:   stripe.Int64(amountCents),
 		Currency: stripe.String(currency),
 	}
-
+	params.Context = ctx
 	params.AddMetadata("integration_check", "accept_a_payment")
+	params.AddMetadata("user_id", userID)
+	params.AddMetadata("purpose", "order_checkout")
 
 	pi, err := paymentintent.New(params)
 	if err != nil {
@@ -39,6 +58,30 @@ func (c *Card) CreatePaymentIntent(currency string, amount int) (*stripe.Payment
 		return nil, msg, err
 	}
 	return pi, "", nil
+}
+
+// RetrievePaymentIntent returns the provider's current state for an intent.
+func (c *Card) RetrievePaymentIntent(ctx context.Context, id string) (*stripe.PaymentIntent, error) {
+	if id == "" || c.Secret == "" {
+		return nil, errors.New("payment intent ID and provider credentials are required")
+	}
+	configureStripeKey(c.Secret)
+	params := &stripe.PaymentIntentParams{}
+	params.Context = ctx
+	return paymentintent.Get(id, params)
+}
+
+// RefundPaymentIntent refunds a succeeded payment intent.
+func (c *Card) RefundPaymentIntent(ctx context.Context, id string) error {
+	if id == "" || c.Secret == "" {
+		return errors.New("payment intent ID and provider credentials are required")
+	}
+	configureStripeKey(c.Secret)
+	params := &stripe.RefundParams{PaymentIntent: stripe.String(id)}
+	params.Context = ctx
+	params.SetIdempotencyKey("order-refund-" + id)
+	_, err := refund.New(params)
+	return err
 }
 
 // cardErrorMessage returns human-readable versions of card error messages

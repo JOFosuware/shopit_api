@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	mock "github.com/stretchr/testify/mock"
 	stripe "github.com/stripe/stripe-go/v72"
 )
@@ -12,9 +14,9 @@ type Carder struct {
 	mock.Mock
 }
 
-// CreatePaymentIntent provides a mock function with given fields: currency, amount
-func (_m *Carder) CreatePaymentIntent(currency string, amount int) (*stripe.PaymentIntent, string, error) {
-	ret := _m.Called(currency, amount)
+// CreatePaymentIntent provides a mock function with given fields: ctx, currency, amountCents, userID
+func (_m *Carder) CreatePaymentIntent(ctx context.Context, currency string, amountCents int64, userID string) (*stripe.PaymentIntent, string, error) {
+	ret := _m.Called(ctx, currency, amountCents, userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreatePaymentIntent")
@@ -23,30 +25,51 @@ func (_m *Carder) CreatePaymentIntent(currency string, amount int) (*stripe.Paym
 	var r0 *stripe.PaymentIntent
 	var r1 string
 	var r2 error
-	if rf, ok := ret.Get(0).(func(string, int) (*stripe.PaymentIntent, string, error)); ok {
-		return rf(currency, amount)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int64, string) (*stripe.PaymentIntent, string, error)); ok {
+		return rf(ctx, currency, amountCents, userID)
 	}
-	if rf, ok := ret.Get(0).(func(string, int) *stripe.PaymentIntent); ok {
-		r0 = rf(currency, amount)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int64, string) *stripe.PaymentIntent); ok {
+		r0 = rf(ctx, currency, amountCents, userID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*stripe.PaymentIntent)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string, int) string); ok {
-		r1 = rf(currency, amount)
+	if rf, ok := ret.Get(1).(func(context.Context, string, int64, string) string); ok {
+		r1 = rf(ctx, currency, amountCents, userID)
 	} else {
 		r1 = ret.Get(1).(string)
 	}
 
-	if rf, ok := ret.Get(2).(func(string, int) error); ok {
-		r2 = rf(currency, amount)
+	if rf, ok := ret.Get(2).(func(context.Context, string, int64, string) error); ok {
+		r2 = rf(ctx, currency, amountCents, userID)
 	} else {
 		r2 = ret.Error(2)
 	}
-
 	return r0, r1, r2
+}
+
+func (_m *Carder) RetrievePaymentIntent(ctx context.Context, id string) (*stripe.PaymentIntent, error) {
+	ret := _m.Called(ctx, id)
+	var intent *stripe.PaymentIntent
+	if rf, ok := ret.Get(0).(func(context.Context, string) *stripe.PaymentIntent); ok {
+		intent = rf(ctx, id)
+	} else if ret.Get(0) != nil {
+		intent = ret.Get(0).(*stripe.PaymentIntent)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		return intent, rf(ctx, id)
+	}
+	return intent, ret.Error(1)
+}
+
+func (_m *Carder) RefundPaymentIntent(ctx context.Context, id string) error {
+	ret := _m.Called(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		return rf(ctx, id)
+	}
+	return ret.Error(0)
 }
 
 // NewCarder creates a new instance of Carder. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

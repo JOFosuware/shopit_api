@@ -97,6 +97,26 @@ The base URL for all endpoints is `/api/v1`.
 - `GET /orders/me`: Get current user's orders.
 - `GET /orders/{id}`: Get an order by ID.
 
+Checkout accepts product IDs and quantities, shipping details, and the Stripe PaymentIntent ID:
+
+```json
+{
+  "orderItems": [{"product": "<product-uuid>", "quantity": 2}],
+  "shippingInfo": {
+    "address": "1 Main St",
+    "city": "Example City",
+    "phoneNo": "555-0100",
+    "postalCode": "00000",
+    "country": "US"
+  },
+  "paymentInfo": {"id": "<payment-intent-id>"}
+}
+```
+
+Order item names, images, prices, totals, tax, shipping cost, and payment status are not accepted as authoritative client data. The server snapshots product details and prices from the catalog, currently applies no tax or shipping charge, verifies the succeeded USD PaymentIntent belongs to the authenticated user and matches the calculated total, and reserves stock within the order transaction. Order lists support `page` (default `1`) and `pageSize` (default `20`, maximum `100`) query parameters and return pagination and aggregate metadata.
+
+Inventory or price conflicts after a successful charge trigger a full refund. Refund claims are stored before contacting Stripe to prevent reuse; failed refunds remain pending and are retried on a later order submission, while persistent provider failures require operational reconciliation.
+
 ### Orders (Admin)
 
 - `GET /orders/admin/orders`: Get all orders.
@@ -105,7 +125,7 @@ The base URL for all endpoints is `/api/v1`.
 
 ### Payment
 
-- `POST /payment/process`: Process a payment.
+- `POST /payment/process`: Create a PaymentIntent from catalog-quoted product IDs and quantities; returns its ID and client secret. Amounts are converted from whole USD dollars to Stripe cents. The order endpoint independently verifies payment before fulfillment.
 - `GET /payment/stripeapi`: Get Stripe API key.
 
 ## Technologies Used

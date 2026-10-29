@@ -1,9 +1,10 @@
 package delivery
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jofosuware/go/shopit/pkg/utils"
-	"net/http"
 )
 
 func (h *OrderHandlers) OrderRouter() http.Handler {
@@ -14,9 +15,12 @@ func (h *OrderHandlers) OrderRouter() http.Handler {
 	mux.Post("/new", h.CreateOrder)
 	mux.Get("/{id}", h.GetSingleOrder)
 	mux.Get("/me", h.GetUserOrders)
-	mux.Get("/admin/orders", h.GetAllOrders)
-	mux.Put("/admin/order/{id}", h.UpdateOrder)
-	mux.Delete("/admin/order/{id}", h.DeleteOrder)
+	mux.Group(func(admin chi.Router) {
+		admin.Use(utils.AdminOnly)
+		admin.Get("/admin/orders", h.GetAllOrders)
+		admin.Put("/admin/order/{id}", h.UpdateOrder)
+		admin.Delete("/admin/order/{id}", h.DeleteOrder)
+	})
 
 	return mux
 }

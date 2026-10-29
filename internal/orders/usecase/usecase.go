@@ -1,201 +1,201 @@
 package usecase
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/orders"
+	"github.com/jofosuware/go/shopit/pkg/card"
+	"github.com/stripe/stripe-go/v72"
 )
 
 // OrderUC provides order-related use cases.
 type OrderUC struct {
 	repo orders.Repo
+	card card.Carder
 }
 
 // NewOrderUC returns a new OrderUC.
-func NewOrderUC(repo orders.Repo) *OrderUC {
-	return &OrderUC{
-		repo: repo,
-	}
+func NewOrderUC(repo orders.Repo, payment card.Carder) *OrderUC {
+	return &OrderUC{repo: repo, card: payment}
 }
 
-// CreateOrder creates an order and persists related records (shipping, items, payment).
-func (o *OrderUC) CreateOrder(ord models.Order) (*models.Order, error) {
-	order, err := o.repo.InsertOrder(ord)
-	if err != nil {
-		return nil, err
+// CreatePaymentIntent creates a user-bound intent for the current catalog quote.
+func (o *OrderUC) CreatePaymentIntent(ctx context.Context, userID uuid.UUID, items []*models.Item) (string, string, error) {
+	if userID == uuid.Nil || len(items) == 0 || len(items) > orders.MaxOrderItems {
+		return "", "", orders.ErrInvalidOrderRequest
 	}
-
-	// Update the ShippingInfo's order id
-	ord.ShippingInfo.OrderID = order.OrderID
-
-	shipping, err := o.repo.InsertShipping(ord.ShippingInfo)
-	if err != nil {
-		err = o.repo.DeleteOrderById(order.OrderID)
-		if err != nil {
-			return nil, err
+	if o.card == nil {
+		return "", "", errors.New("payment provider is not configured")
+	}
+	for _, item := range items {
+		if item == nil || item.ProductID == uuid.Nil || item.Quantity <= 0 {
+			return "", "", orders.ErrInvalidOrderRequest
 		}
-		return nil, err
 	}
-
-	// Update the OrderItems order id
-	ord.OrderItems[0].OrderID = order.OrderID
-
-	item, err := o.repo.InsertItem(*ord.OrderItems[0])
+	_, amountDollars, err := o.repo.QuoteItems(ctx, items)
 	if err != nil {
-		err = o.repo.DeleteOrderById(order.OrderID)
-		if err != nil {
-			return nil, err
-		}
-		return nil, err
+		return "", "", fmt.Errorf("quoting payment items: %w", err)
 	}
-
-	// Update the PaymentInfo's order id
-	ord.PaymentInfo.OrderID = order.OrderID
-
-	payment, err := o.repo.InsertPayment(ord.PaymentInfo)
+	if amountDollars <= 0 || int64(amountDollars) > math.MaxInt64/100 {
+		return "", "", orders.ErrInvalidOrderRequest
+	}
+	intent, _, err := o.card.CreatePaymentIntent(ctx, "usd", int64(amountDollars)*100, userID.String())
 	if err != nil {
-		err = o.repo.DeleteOrderById(order.OrderID)
-		if err != nil {
-			return nil, err
-		}
-		return nil, err
+		return "", "", fmt.Errorf("creating payment intent: %w", err)
 	}
-
-	order.ShippingInfo = *shipping
-	order.OrderItems = append(order.OrderItems, item)
-	order.PaymentInfo = *payment
-
-	return order, nil
+	if intent == nil || intent.ID == "" || intent.ClientSecret == "" {
+		return "", "", errors.New("payment provider returned an empty intent")
+	}
+	return intent.ID, intent.ClientSecret, nil
 }
 
-// GetSingleOrder returns a single order by ID.
-func (o *OrderUC) GetSingleOrder(orderId uuid.UUID) (*models.Order, error) {
-	order, err := o.repo.FetchOrderById(orderId)
-	if err != nil {
-		return nil, err
+// CreateOrder verifies payment and persists an order using current product data.
+func (o *OrderUC) CreateOrder(ctx context.Context, order models.Order) (*models.Order, error) {
+	if len(order.OrderItems) == 0 || len(order.OrderItems) > orders.MaxOrderItems ||
+		order.UserID == uuid.Nil || order.PaymentInfo.ID == "" {
+		return nil, orders.ErrInvalidOrderRequest
+	}
+	if o.card == nil {
+		return nil, errors.New("payment provider is not configured")
+	}
+	for _, item := range order.OrderItems {
+		if item == nil || item.ProductID == uuid.Nil || item.Quantity <= 0 {
+			return nil, orders.ErrInvalidOrderRequest
+		}
 	}
 
-	shippings, err := o.repo.FetchShippingById(orderId)
+	intent, err := o.card.RetrievePaymentIntent(ctx, order.PaymentInfo.ID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("retrieving payment intent: %w", err)
+	}
+	if intent == nil || intent.Status != stripe.PaymentIntentStatusSucceeded ||
+		intent.Currency != "usd" ||
+		intent.Metadata["user_id"] != order.UserID.String() ||
+		intent.Metadata["purpose"] != "order_checkout" {
+		return nil, orders.ErrInvalidPayment
+	}
+	used, err := o.repo.PaymentIntentUsed(ctx, order.PaymentInfo.ID)
+	if err != nil {
+		return nil, fmt.Errorf("checking payment intent reuse: %w", err)
+	}
+	if used {
+		return nil, orders.ErrPaymentAlreadyUsed
+	}
+	refundPending, err := o.repo.PaymentIntentRefundPending(ctx, order.PaymentInfo.ID)
+	if err != nil {
+		return nil, fmt.Errorf("checking pending payment refund: %w", err)
+	}
+	if refundPending {
+		err := o.repo.RefundPaymentIntentIfUnused(ctx, order.PaymentInfo.ID, o.card.RefundPaymentIntent)
+		if errors.Is(err, orders.ErrPaymentAlreadyUsed) || errors.Is(err, orders.ErrPaymentRefundFailed) {
+			return nil, err
+		}
+		if err != nil {
+			return nil, errors.Join(orders.ErrPaymentUseUnknown, fmt.Errorf("retrying pending payment refund: %w", err))
+		}
+		return nil, orders.ErrPaymentAlreadyUsed
 	}
 
-	items, err := o.repo.FetchItemsById(orderId)
+	quotedItems, itemPrice, err := o.repo.QuoteItems(ctx, order.OrderItems)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, orders.ErrInsufficientStock) || errors.Is(err, orders.ErrProductNotFound) {
+			return nil, o.refundForCheckoutConflict(ctx, order.PaymentInfo.ID, err)
+		}
+		return nil, fmt.Errorf("quoting order items: %w", err)
+	}
+	if itemPrice <= 0 || int64(itemPrice) > math.MaxInt64/100 {
+		return nil, orders.ErrInvalidOrderRequest
+	}
+	expectedAmount := int64(itemPrice) * 100
+	if intent.Amount != expectedAmount {
+		return nil, o.refundForCheckoutConflict(ctx, order.PaymentInfo.ID, orders.ErrOrderPriceChanged)
 	}
 
-	payment, err := o.repo.FetchPaymentById(orderId)
+	order.OrderItems = quotedItems
+	order.ItemPrice = itemPrice
+	order.TaxPrice = 0
+	order.ShippingPrice = 0
+	order.TotalPrice = itemPrice
+	order.OrderStatus = "Processing"
+	order.PaidAt = time.Now().UTC()
+	order.PaymentInfo.Status = string(stripe.PaymentIntentStatusSucceeded)
+
+	created, err := o.repo.CreateOrder(ctx, order)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, orders.ErrInsufficientStock) || errors.Is(err, orders.ErrOrderPriceChanged) ||
+			errors.Is(err, orders.ErrProductNotFound) {
+			return nil, o.refundForCheckoutConflict(ctx, order.PaymentInfo.ID, err)
+		}
+		return nil, fmt.Errorf("creating order: %w", err)
 	}
+	return created, nil
+}
 
-	order.ShippingInfo = *shippings
-	order.OrderItems = items
-	order.PaymentInfo = *payment
+func (o *OrderUC) refundForCheckoutConflict(ctx context.Context, paymentID string, cause error) error {
+	err := o.repo.RefundPaymentIntentIfUnused(ctx, paymentID, o.card.RefundPaymentIntent)
+	if errors.Is(err, orders.ErrPaymentAlreadyUsed) {
+		return err
+	}
+	if errors.Is(err, orders.ErrPaymentRefundFailed) {
+		return errors.Join(err, cause)
+	}
+	if err != nil {
+		return errors.Join(orders.ErrPaymentUseUnknown, cause, fmt.Errorf("safely refunding payment: %w", err))
+	}
+	return fmt.Errorf("creating order: %w", cause)
+}
 
-	return order, nil
+// GetSingleOrder returns an order by ID with its related records.
+func (o *OrderUC) GetSingleOrder(ctx context.Context, orderID uuid.UUID) (*models.Order, error) {
+	found, _, _, err := o.repo.FetchOrdersWithDetails(ctx, &orderID, nil, 1, 1)
+	if err != nil {
+		return nil, fmt.Errorf("fetching order: %w", err)
+	}
+	if len(found) == 0 {
+		return nil, orders.ErrOrderNotFound
+	}
+	return found[0], nil
 }
 
 // GetUserOrders returns all orders for a specific user.
-func (o *OrderUC) GetUserOrders(userId uuid.UUID) ([]*models.Order, error) {
-	ords, err := o.repo.FetchOrdersById(userId)
+func (o *OrderUC) GetUserOrders(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ordersForUser, count, totalAmount, err := o.repo.FetchOrdersWithDetails(ctx, nil, &userID, page, pageSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, fmt.Errorf("fetching user orders: %w", err)
 	}
-
-	for i, ord := range ords {
-		shippings, err := o.repo.FetchShippingById(ord.OrderID)
-		if err != nil {
-			return nil, err
-		}
-		ords[i].ShippingInfo = *shippings
-	}
-
-	for i, ord := range ords {
-		items, err := o.repo.FetchItemsById(ord.OrderID)
-		if err != nil {
-			return nil, err
-		}
-
-		ords[i].OrderItems = items
-	}
-
-	for i, ord := range ords {
-		payment, err := o.repo.FetchPaymentById(ord.OrderID)
-		if err != nil {
-			return nil, err
-		}
-
-		ords[i].PaymentInfo = *payment
-	}
-
-	return ords, nil
+	return ordersForUser, count, totalAmount, nil
 }
 
-// GetAllOrders returns all orders.
-func (o *OrderUC) GetAllOrders() ([]*models.Order, error) {
-	ords, err := o.repo.FetchAllOrders()
+// GetAllOrders returns all orders and their related records.
+func (o *OrderUC) GetAllOrders(ctx context.Context, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ordersList, count, totalAmount, err := o.repo.FetchOrdersWithDetails(ctx, nil, nil, page, pageSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, fmt.Errorf("fetching all orders: %w", err)
 	}
-
-	shippings, err := o.repo.FetchAllShipping()
-	if err != nil {
-		return nil, err
-	}
-
-	for i, shipping := range shippings {
-		ords[i].ShippingInfo = *shipping
-	}
-
-	items, err := o.repo.FetchAllItems()
-	if err != nil {
-		return nil, err
-	}
-
-	for i, item := range items {
-		ords[i].OrderItems = append(ords[i].OrderItems, item)
-	}
-
-	payments, err := o.repo.FetchAllPayment()
-	if err != nil {
-		return nil, err
-	}
-
-	for i, payment := range payments {
-		ords[i].PaymentInfo = *payment
-	}
-
-	return ords, nil
+	return ordersList, count, totalAmount, nil
 }
 
-// UpdateOrder updates an order.
-func (o *OrderUC) UpdateOrder(order models.Order) error {
-	err := o.repo.UpdateOrder(order.OrderID, order)
-	if err != nil {
-		return err
+// UpdateOrderStatus validates and atomically persists an order status change.
+func (o *OrderUC) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
+	if status != "Processing" && status != "Delivered" {
+		return orders.ErrInvalidOrderStatus
 	}
-
-	return nil
-}
-
-// UpdateStock updates a product's stock by decrementing the given quantity.
-func (o *OrderUC) UpdateStock(productId uuid.UUID, quantity int) error {
-	err := o.repo.UpdateStock(productId, quantity)
-	if err != nil {
-		return err
+	if err := o.repo.UpdateOrderStatus(ctx, orderID, status); err != nil {
+		return fmt.Errorf("updating order status: %w", err)
 	}
-
 	return nil
 }
 
 // DeleteOrder deletes an order by ID.
-func (o *OrderUC) DeleteOrder(orderId uuid.UUID) error {
-	err := o.repo.DeleteOrderById(orderId)
-	if err != nil {
-		return err
+func (o *OrderUC) DeleteOrder(ctx context.Context, orderID uuid.UUID) error {
+	if err := o.repo.DeleteOrder(ctx, orderID); err != nil {
+		return fmt.Errorf("deleting order: %w", err)
 	}
-
 	return nil
 }

@@ -9,9 +9,12 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	authRepository "github.com/jofosuware/go/shopit/internal/auth/repository"
 	"github.com/jofosuware/go/shopit/internal/models"
+	"github.com/jofosuware/go/shopit/internal/orders"
 	"github.com/jofosuware/go/shopit/internal/orders/delivery"
 	mockOrder "github.com/jofosuware/go/shopit/internal/orders/mocks"
 	mockLogger "github.com/jofosuware/go/shopit/pkg/logger/mock"
@@ -115,7 +118,12 @@ func TestCreateOrder(t *testing.T) {
 
 		// Expect the use case CreateOrder to be invoked.
 		// (Using mock.Anything here for simplicity; you can use a more precise matcher if needed.)
-		orderUC.On("CreateOrder", mock.Anything).Return(&models.Order{}, nil)
+		orderUC.On("CreateOrder", mock.Anything, mock.MatchedBy(func(order models.Order) bool {
+			return len(order.OrderItems) == 1 && order.OrderItems[0].Quantity == 1 &&
+				order.OrderItems[0].ProductID.String() == prodID &&
+				order.PaymentInfo.ID == "pay1" && order.PaymentInfo.Status == "" &&
+				order.ItemPrice == 0 && order.TotalPrice == 0
+		})).Return(&models.Order{}, nil)
 
 		o.CreateOrder(rr, req)
 
@@ -143,9 +151,12 @@ func TestGetSingleOrder(t *testing.T) {
 		// Create a chi router and set the URL param
 		rCtx := chi.NewRouteContext()
 		rCtx.URLParams.Add("id", id.String())
-		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
+		user := &models.User{ID: uuid.New()}
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rCtx)
+		ctx = context.WithValue(ctx, UserContextKey, user)
+		req = req.WithContext(ctx)
 
-		orderUC.On("GetSingleOrder", id).Return(&models.Order{}, nil)
+		orderUC.On("GetSingleOrder", mock.Anything, id).Return(&models.Order{UserID: user.ID}, nil)
 
 		o.GetSingleOrder(rr, req)
 
@@ -154,6 +165,93 @@ func TestGetSingleOrder(t *testing.T) {
 
 		assert.Equal(t, want, got)
 	})
+}
+
+func TestGetSingleOrderRejectsAnotherUsersOrder(t *testing.T) {
+	logger := mockLogger.NewLogger(t)
+	orderUC := mockOrder.NewOrderUC(t)
+	handler := delivery.NewOrderHandlers(logger, orderUC)
+
+	orderID := uuid.New()
+	request, err := http.NewRequest(http.MethodGet, "/orders/"+orderID.String(), nil)
+	require.NoError(t, err)
+	routeContext := chi.NewRouteContext()
+	routeContext.URLParams.Add("id", orderID.String())
+	requestContext := context.WithValue(request.Context(), chi.RouteCtxKey, routeContext)
+	requestContext = context.WithValue(requestContext, UserContextKey, &models.User{ID: uuid.New(), Role: "user"})
+	request = request.WithContext(requestContext)
+	orderUC.On("GetSingleOrder", mock.Anything, orderID).
+		Return(&models.Order{OrderID: orderID, UserID: uuid.New()}, nil).Once()
+
+	response := httptest.NewRecorder()
+	handler.GetSingleOrder(response, request)
+
+	require.Equal(t, http.StatusForbidden, response.Code)
+	orderUC.AssertExpectations(t)
+}
+
+func TestCreateOrderRejectsEmptyItems(t *testing.T) {
+	orderUC := mockOrder.NewOrderUC(t)
+	handler := delivery.NewOrderHandlers(nil, orderUC)
+	request, err := http.NewRequest(http.MethodPost, "/orders", bytes.NewBufferString(`{"orderItems":[],"shippingInfo":{},"paymentInfo":{}}`))
+	require.NoError(t, err)
+	request = request.WithContext(context.WithValue(request.Context(), UserContextKey, &models.User{ID: uuid.New()}))
+
+	response := httptest.NewRecorder()
+	handler.CreateOrder(response, request)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	orderUC.AssertNotCalled(t, "CreateOrder", mock.Anything, mock.Anything)
+}
+
+func TestCreateOrderRejectsTooManyItems(t *testing.T) {
+	handler := delivery.NewOrderHandlers(nil, mockOrder.NewOrderUC(t))
+	productID := uuid.NewString()
+	item := `{"product":"` + productID + `","quantity":1}`
+	var body bytes.Buffer
+	body.WriteString(`{"orderItems":[`)
+	for i := 0; i < orders.MaxOrderItems+1; i++ {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		body.WriteString(item)
+	}
+	body.WriteString(`],"shippingInfo":{"address":"A","city":"C","phoneNo":"P","postalCode":"Z","country":"X"},"paymentInfo":{"id":"pi"}}`)
+	request := httptest.NewRequest(http.MethodPost, "/orders/new", &body)
+	request = request.WithContext(context.WithValue(request.Context(), UserContextKey, &models.User{ID: uuid.New()}))
+	response := httptest.NewRecorder()
+
+	handler.CreateOrder(response, request)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+}
+
+func TestOrderRouterRestrictsAdminRoutes(t *testing.T) {
+	db, sqlMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	previousRepo := utils.Repo
+	utils.Repo = authRepository.NewAuthRepository(db)
+	t.Cleanup(func() { utils.Repo = previousRepo })
+
+	token := "abcdefghijklmnopqrstuvwx12"
+	userID := uuid.New()
+	sqlMock.ExpectQuery(`(?s)select.*from\s+users u.*t\.token_hash`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "name", "email", "role"}).
+			AddRow(userID, "user", "user@example.test", "user"))
+
+	orderUC := mockOrder.NewOrderUC(t)
+	handler := delivery.NewOrderHandlers(mockLogger.NewLogger(t), orderUC)
+	request := httptest.NewRequest(http.MethodGet, "/admin/orders", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+
+	handler.OrderRouter().ServeHTTP(response, request)
+
+	require.NoError(t, sqlMock.ExpectationsWereMet())
+	require.Equal(t, http.StatusForbidden, response.Code)
+	orderUC.AssertNotCalled(t, "GetAllOrders", mock.Anything)
 }
 
 func TestGetUserOrders(t *testing.T) {
@@ -174,7 +272,8 @@ func TestGetUserOrders(t *testing.T) {
 		ctx := context.WithValue(req.Context(), UserContextKey, &user)
 		req = req.WithContext(ctx)
 
-		orderUC.On("GetUserOrders", user.ID).Return([]*models.Order{}, nil)
+		orderUC.On("GetUserOrders", mock.Anything, user.ID, 1, 20).
+			Return([]*models.Order{}, 0, int64(0), nil)
 
 		o.GetUserOrders(rr, req)
 
@@ -197,7 +296,8 @@ func TestGetAllOrders(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 
-		orderUC.On("GetAllOrders").Return([]*models.Order{}, nil)
+		orderUC.On("GetAllOrders", mock.Anything, 1, 20).
+			Return([]*models.Order{}, 0, int64(0), nil)
 
 		o.GetAllOrders(rr, req)
 
@@ -206,6 +306,19 @@ func TestGetAllOrders(t *testing.T) {
 
 		assert.Equal(t, want, got)
 	})
+}
+
+func TestGetUserOrdersRejectsOutOfRangePageSize(t *testing.T) {
+	orderUC := mockOrder.NewOrderUC(t)
+	handler := delivery.NewOrderHandlers(mockLogger.NewLogger(t), orderUC)
+	request := httptest.NewRequest(http.MethodGet, "/orders/me?pageSize=101", nil)
+	request = request.WithContext(context.WithValue(request.Context(), UserContextKey, &models.User{ID: uuid.New()}))
+	response := httptest.NewRecorder()
+
+	handler.GetUserOrders(response, request)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	orderUC.AssertNotCalled(t, "GetUserOrders", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUpdateOrder(t *testing.T) {
@@ -234,30 +347,7 @@ func TestUpdateOrder(t *testing.T) {
 		rCtx.URLParams.Add("id", id.String())
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 
-		// Create a fake order that is currently 'Processing'
-		ord := models.Order{
-			OrderItems: []*models.Item{
-				{
-					Quantity:  5,
-					ProductID: uuid.New(),
-				},
-			},
-			OrderStatus: "Processing",
-		}
-
-		// Expect GetSingleOrder to be called with the order id.
-		orderUC.On("GetSingleOrder", id).Return(&ord, nil)
-
-		// Expect UpdateStock to be called for each item.
-		orderUC.On("UpdateStock", ord.OrderItems[0].ProductID, ord.OrderItems[0].Quantity).Return(nil)
-
-		// For UpdateOrder, we expect that the order status is updated to "Delivered" and DeliveredAt is set.
-		orderUC.
-			On("UpdateOrder", mock.MatchedBy(func(updated models.Order) bool {
-				// Check that the status is updated and DeliveredAt is non-zero.
-				return updated.OrderStatus == "Delivered" && !updated.DeliveredAt.IsZero()
-			})).
-			Return(nil)
+		orderUC.On("UpdateOrderStatus", mock.Anything, id, "Delivered").Return(nil)
 
 		// Call the handler.
 		o.UpdateOrder(rr, req)
@@ -286,7 +376,7 @@ func TestDeleteOrder(t *testing.T) {
 		rCtx.URLParams.Add("id", id.String())
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rCtx))
 
-		orderUC.On("DeleteOrder", id).Return(nil)
+		orderUC.On("DeleteOrder", mock.Anything, id).Return(nil)
 
 		o.DeleteOrder(rr, req)
 

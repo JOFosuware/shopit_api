@@ -8,7 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,11 +16,27 @@ import (
 	"github.com/jofosuware/go/shopit/internal/orders"
 	"github.com/jofosuware/go/shopit/pkg/logger"
 	"github.com/jofosuware/go/shopit/pkg/utils"
-	"github.com/jofosuware/go/shopit/pkg/validator"
 )
 
 // UserContextKey is the request context key used to store the authenticated user.
 const UserContextKey = utils.UserContextKey
+
+type createOrderRequest struct {
+	OrderItems []struct {
+		Product  string `json:"product"`
+		Quantity int    `json:"quantity"`
+	} `json:"orderItems"`
+	ShippingInfo *struct {
+		Address    string `json:"address"`
+		City       string `json:"city"`
+		PhoneNo    string `json:"phoneNo"`
+		PostalCode string `json:"postalCode"`
+		Country    string `json:"country"`
+	} `json:"shippingInfo"`
+	PaymentInfo *struct {
+		ID string `json:"id"`
+	} `json:"paymentInfo"`
+}
 
 // OrderHandlers provides HTTP handler methods for order endpoints.
 type OrderHandlers struct {
@@ -41,111 +57,99 @@ func NewOrderHandlers(logger logger.Logger, ordersUC orders.OrderUC) *OrderHandl
 // Expects JSON body describing order items, shipping, and payment.
 func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
-	if !ok {
-		_ = utils.BadRequest(w, r, errors.New("error getting user from session"))
-		h.logger.Errorf("error getting user from session")
+	if !ok || user == nil {
+		h.writeJSON(w, http.StatusUnauthorized, models.Response{Success: false, Message: "invalid authentication credentials"})
 		return
 	}
 
-	ord := &models.Order{
-		OrderItems:   []*models.Item{new(models.Item)},
-		ShippingInfo: models.Shipping{},
-		PaymentInfo:  models.Payment{},
+	var request createOrderRequest
+	if err := utils.ReadJSON(w, r, &request); err != nil {
+		h.writeBadRequest(w, "reading order payload", err)
+		return
 	}
-
-	order := struct {
-		OrderItems []*struct {
-			Product  string `json:"product"`
-			Name     string `json:"name"`
-			Price    int    `json:"price"`
-			Image    string `json:"image"`
-			Stock    int    `json:"stock"`
-			Quantity int    `json:"quantity"`
-		} `json:"orderItems"`
-		ShippingInfo *struct {
-			Address    string `json:"address"`
-			City       string `json:"city"`
-			PhoneNo    string `json:"phoneNo"`
-			PostalCode string `json:"postalCode"`
-			Country    string `json:"country"`
-		} `json:"shippingInfo"`
-		ItemsPrice    string  `json:"itemsPrice"`
-		ShippingPrice int     `json:"shippingPrice"`
-		TaxPrice      float64 `json:"taxPrice"`
-		TotalPrice    string  `json:"totalPrice"`
-		PaymentInfo   *struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-		} `json:"paymentInfo"`
-	}{}
-
-	if err := utils.ReadJSON(w, r, &order); err != nil {
-		_ = utils.BadRequest(w, r, errors.New("bad request"))
-		h.logger.Errorf("error parsing payload: %v", err)
+	if len(request.OrderItems) == 0 || request.ShippingInfo == nil || request.PaymentInfo == nil {
+		h.writeBadRequest(w, "validating order payload", errors.New("order items, shipping info, and payment info are required"))
+		return
+	}
+	if len(request.OrderItems) > orders.MaxOrderItems {
+		h.writeBadRequest(w, "validating order payload", errors.New("order contains too many items"))
+		return
+	}
+	if strings.TrimSpace(request.PaymentInfo.ID) == "" ||
+		strings.TrimSpace(request.ShippingInfo.Address) == "" ||
+		strings.TrimSpace(request.ShippingInfo.City) == "" ||
+		strings.TrimSpace(request.ShippingInfo.PhoneNo) == "" ||
+		strings.TrimSpace(request.ShippingInfo.PostalCode) == "" ||
+		strings.TrimSpace(request.ShippingInfo.Country) == "" {
+		h.writeBadRequest(w, "validating order payload", errors.New("payment ID and complete shipping details are required"))
 		return
 	}
 
-	parsedId, err := uuid.Parse(order.OrderItems[0].Product)
-	itemPrice, _ := strconv.ParseFloat(order.ItemsPrice, 64)
-	totalPrice, _ := strconv.ParseFloat(order.TotalPrice, 64)
+	order := models.Order{
+		OrderItems:   make([]*models.Item, 0, len(request.OrderItems)),
+		ShippingInfo: models.Shipping{Address: request.ShippingInfo.Address, City: request.ShippingInfo.City, PhoneNo: request.ShippingInfo.PhoneNo, PostalCode: request.ShippingInfo.PostalCode, Country: request.ShippingInfo.Country},
+		PaymentInfo:  models.Payment{ID: strings.TrimSpace(request.PaymentInfo.ID)},
+		UserID:       user.ID,
+	}
+	for _, input := range request.OrderItems {
+		productID, err := uuid.Parse(input.Product)
+		if err != nil || input.Quantity <= 0 {
+			h.writeBadRequest(w, "validating order items", errors.New("invalid product ID or quantity"))
+			return
+		}
+		order.OrderItems = append(order.OrderItems, &models.Item{
+			ProductID: productID,
+			Quantity:  input.Quantity,
+		})
+	}
+
+	createdOrder, err := h.ordersUC.CreateOrder(r.Context(), order)
 	if err != nil {
-		_ = utils.BadRequest(w, r, errors.New("bad request"))
-		h.logger.Errorf("error parsing payload: %v", err)
+		h.writeOrderError(w, err)
+		h.logErrorf("creating order: %v", err)
 		return
 	}
-
-	ord.OrderItems[0].ProductID = parsedId
-	ord.OrderItems[0].Name = order.OrderItems[0].Name
-	ord.OrderItems[0].Price = order.OrderItems[0].Price
-	ord.OrderItems[0].Quantity = order.OrderItems[0].Quantity
-	ord.OrderItems[0].Image = order.OrderItems[0].Image
-	ord.ShippingInfo.Address = order.ShippingInfo.Address
-	ord.ShippingInfo.City = order.ShippingInfo.City
-	ord.ShippingInfo.PhoneNo = order.ShippingInfo.PhoneNo
-	ord.ShippingInfo.PostalCode = order.ShippingInfo.PostalCode
-	ord.ShippingInfo.Country = order.ShippingInfo.Country
-	ord.ItemPrice = int(itemPrice)
-	ord.ShippingPrice = order.ShippingPrice
-	ord.TaxPrice = order.TaxPrice
-	ord.TotalPrice = int(totalPrice)
-	ord.PaymentInfo.ID = order.PaymentInfo.ID
-	ord.PaymentInfo.Status = order.PaymentInfo.Status
-	ord.UserID = user.ID
-	ord.PaidAt = time.Now()
-	ord.OrderStatus = "Processing"
-	ord.DeliveredAt = time.Time{}
-
-	ord, err = h.ordersUC.CreateOrder(*ord)
-	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error creating order: %v", err)
+	if createdOrder == nil {
+		h.writeOrderError(w, errors.New("order use case returned an empty result"))
 		return
 	}
 
 	jr := models.OrderResponse{
 		Success: true,
-		Order:   *ord,
+		Order:   *createdOrder,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jr)
+	h.writeJSON(w, http.StatusOK, jr)
 }
 
 // GetSingleOrder returns an order by its ID.
 // Endpoint: GET /api/v1/orders/{id}
 func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
+	user, ok := r.Context().Value(UserContextKey).(*models.User)
+	if !ok || user == nil {
+		h.writeJSON(w, http.StatusUnauthorized, models.Response{Success: false, Message: "invalid authentication credentials"})
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing order ID", err)
 		return
 	}
 
-	order, err := h.ordersUC.GetSingleOrder(parsedId)
+	order, err := h.ordersUC.GetSingleOrder(r.Context(), parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error getting order: %v", err)
+		h.writeOrderError(w, err)
+		h.logErrorf("getting order: %v", err)
+		return
+	}
+	if order == nil {
+		h.writeOrderError(w, orders.ErrOrderNotFound)
+		return
+	}
+	if user.Role != "admin" && order.UserID != user.ID {
+		h.writeJSON(w, http.StatusForbidden, models.Response{Success: false, Message: "forbidden"})
 		return
 	}
 
@@ -154,64 +158,74 @@ func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 		Order:   *order,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jr)
+	h.writeJSON(w, http.StatusOK, jr)
 }
 
 // GetUserOrders returns orders for the currently authenticated user.
 // Endpoint: GET /api/v1/orders/me
 func (h *OrderHandlers) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
-	if !ok {
-		_ = utils.BadRequest(w, r, errors.New("user is not logged in"))
-		h.logger.Error("error getting user from context")
+	if !ok || user == nil {
+		h.writeJSON(w, http.StatusUnauthorized, models.Response{Success: false, Message: "invalid authentication credentials"})
 		return
 	}
 
-	ords, err := h.ordersUC.GetUserOrders(user.ID)
+	page, pageSize, err := parsePagination(r)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error getting user orders: %v", err)
+		h.writeOrderError(w, err)
+		return
+	}
+	ords, totalCount, totalAmount, err := h.ordersUC.GetUserOrders(r.Context(), user.ID, page, pageSize)
+	if err != nil {
+		h.writeOrderError(w, err)
+		h.logErrorf("getting user orders: %v", err)
 		return
 	}
 
 	jr := struct {
-		Success bool            `json:"success"`
-		Orders  []*models.Order `json:"orders"`
+		Success     bool            `json:"success"`
+		Orders      []*models.Order `json:"orders"`
+		Page        int             `json:"page"`
+		PageSize    int             `json:"pageSize"`
+		TotalCount  int             `json:"totalCount"`
+		TotalAmount int64           `json:"totalAmount"`
 	}{
-		Success: true,
-		Orders:  ords,
+		Success: true, Orders: ords, Page: page, PageSize: pageSize,
+		TotalCount: totalCount, TotalAmount: totalAmount,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jr)
+	h.writeJSON(w, http.StatusOK, jr)
 }
 
 // GetAllOrders returns all orders (admin).
 // Endpoint: GET /api/v1/orders/admin/orders
 func (h *OrderHandlers) GetAllOrders(w http.ResponseWriter, r *http.Request) {
-	ords, err := h.ordersUC.GetAllOrders()
+	page, pageSize, err := parsePagination(r)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error getting orders: %v", err)
+		h.writeOrderError(w, err)
 		return
 	}
-
-	var totalAmount = 0
-
-	for _, ord := range ords {
-		totalAmount += ord.TotalPrice
+	ords, totalCount, totalAmount, err := h.ordersUC.GetAllOrders(r.Context(), page, pageSize)
+	if err != nil {
+		h.writeOrderError(w, err)
+		h.logErrorf("getting orders: %v", err)
+		return
 	}
 
 	jr := struct {
 		Success     bool            `json:"success"`
-		TotalAmount int             `json:"totalAmount"`
+		TotalAmount int64           `json:"totalAmount"`
+		TotalCount  int             `json:"totalCount"`
+		Page        int             `json:"page"`
+		PageSize    int             `json:"pageSize"`
 		Orders      []*models.Order `json:"orders"`
 	}{
-		Success:     true,
+		Success: true, TotalCount: totalCount, Page: page, PageSize: pageSize,
 		TotalAmount: totalAmount,
 		Orders:      ords,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jr)
+	h.writeJSON(w, http.StatusOK, jr)
 }
 
 // UpdateOrder updates an order's status (admin).
@@ -222,63 +236,27 @@ func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing order ID", err)
 		return
 	}
 
-	err = r.ParseMultipartForm(100000)
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	err = r.ParseMultipartForm(1 << 20)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing form: %v", err)
+		h.writeBadRequest(w, "parsing order status form", err)
 		return
 	}
 
-	status := r.Form.Get("status")
-
-	v := validator.New()
-
-	v.Check(status != "", "status", "status field is empty")
-
-	if !v.Valid() {
-		_ = utils.BadRequest(w, r, errors.New("forms must be filled"))
-		h.logger.Errorf("Form validation error")
+	status := r.FormValue("status")
+	if status != "Processing" && status != "Delivered" {
+		h.writeOrderError(w, orders.ErrInvalidOrderStatus)
 		return
 	}
 
-	order, err := h.ordersUC.GetSingleOrder(parsedId)
+	err = h.ordersUC.UpdateOrderStatus(r.Context(), parsedId, status)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error fetching order: %v", err)
-		return
-	}
-
-	if order.OrderStatus == "Delivered" {
-		_ = utils.BadRequest(w, r, errors.New("you have already delivered this order"))
-		h.logger.Infof("you have already delivered this order")
-		return
-	}
-
-	for _, item := range order.OrderItems {
-		err := h.ordersUC.UpdateStock(item.ProductID, item.Quantity)
-		if err != nil {
-			_ = utils.BadRequest(w, r, err)
-			h.logger.Errorf("error updating stock: %v", err)
-			return
-		}
-	}
-
-	order.OrderStatus = status
-	if status == "Delivered" {
-		order.DeliveredAt = time.Now()
-	} else {
-		order.DeliveredAt = time.Time{}
-	}
-
-	err = h.ordersUC.UpdateOrder(*order)
-	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error updating order: %v", err)
+		h.writeOrderError(w, err)
+		h.logErrorf("updating order: %v", err)
 		return
 	}
 
@@ -288,7 +266,7 @@ func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jsonRes)
+	h.writeJSON(w, http.StatusOK, jsonRes)
 }
 
 // DeleteOrder deletes an order (admin).
@@ -298,15 +276,14 @@ func (h *OrderHandlers) DeleteOrder(w http.ResponseWriter, r *http.Request) {
 
 	parsedId, err := uuid.Parse(id)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error parsing id: %v", err)
+		h.writeBadRequest(w, "parsing order ID", err)
 		return
 	}
 
-	err = h.ordersUC.DeleteOrder(parsedId)
+	err = h.ordersUC.DeleteOrder(r.Context(), parsedId)
 	if err != nil {
-		_ = utils.BadRequest(w, r, err)
-		h.logger.Errorf("error deleting the order: %v", err)
+		h.writeOrderError(w, err)
+		h.logErrorf("deleting order: %v", err)
 		return
 	}
 
@@ -316,5 +293,70 @@ func (h *OrderHandlers) DeleteOrder(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 	}
 
-	_ = utils.WriteJSON(w, http.StatusOK, jsonRes)
+	h.writeJSON(w, http.StatusOK, jsonRes)
+}
+
+func (h *OrderHandlers) writeOrderError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	message := "internal server error"
+	switch {
+	case errors.Is(err, orders.ErrOrderNotFound):
+		status, message = http.StatusNotFound, "order not found"
+	case errors.Is(err, orders.ErrOrderAlreadyDelivered), errors.Is(err, orders.ErrInsufficientStock):
+		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, orders.ErrInvalidOrderStatus):
+		status, message = http.StatusBadRequest, err.Error()
+	case errors.Is(err, orders.ErrInvalidOrderRequest):
+		status, message = http.StatusBadRequest, err.Error()
+	case errors.Is(err, orders.ErrInvalidPagination):
+		status, message = http.StatusBadRequest, err.Error()
+	case errors.Is(err, orders.ErrInvalidPayment):
+		status, message = http.StatusPaymentRequired, err.Error()
+	case errors.Is(err, orders.ErrPaymentAlreadyUsed):
+		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, orders.ErrPaymentRefundFailed), errors.Is(err, orders.ErrPaymentUseUnknown):
+		status, message = http.StatusInternalServerError, "payment requires reconciliation"
+	case errors.Is(err, orders.ErrProductNotFound):
+		status, message = http.StatusNotFound, "product not found"
+	case errors.Is(err, orders.ErrOrderPriceChanged):
+		status, message = http.StatusConflict, err.Error()
+	}
+	h.writeJSON(w, status, models.Response{Success: false, Message: message})
+}
+
+func parsePagination(r *http.Request) (int, int, error) {
+	const defaultPage, defaultPageSize = 1, 20
+	page, pageSize := defaultPage, defaultPageSize
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			return 0, 0, orders.ErrInvalidPagination
+		}
+		page = parsed
+	}
+	if raw := r.URL.Query().Get("pageSize"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return 0, 0, orders.ErrInvalidPagination
+		}
+		pageSize = parsed
+	}
+	return page, pageSize, nil
+}
+
+func (h *OrderHandlers) writeJSON(w http.ResponseWriter, status int, payload any) {
+	if writeErr := utils.WriteJSON(w, status, payload); writeErr != nil {
+		h.logErrorf("writing order response: %v", writeErr)
+	}
+}
+
+func (h *OrderHandlers) writeBadRequest(w http.ResponseWriter, operation string, err error) {
+	h.logErrorf("%s: %v", operation, err)
+	h.writeJSON(w, http.StatusBadRequest, models.Response{Success: false, Message: "invalid request"})
+}
+
+func (h *OrderHandlers) logErrorf(format string, args ...any) {
+	if h.logger != nil {
+		h.logger.Errorf(format, args...)
+	}
 }

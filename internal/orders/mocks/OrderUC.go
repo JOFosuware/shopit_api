@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	models "github.com/jofosuware/go/shopit/internal/models"
 	mock "github.com/stretchr/testify/mock"
 
@@ -15,8 +17,8 @@ type OrderUC struct {
 }
 
 // CreateOrder provides a mock function with given fields: order
-func (_m *OrderUC) CreateOrder(order models.Order) (*models.Order, error) {
-	ret := _m.Called(order)
+func (_m *OrderUC) CreateOrder(ctx context.Context, order models.Order) (*models.Order, error) {
+	ret := _m.Called(ctx, order)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateOrder")
@@ -24,19 +26,19 @@ func (_m *OrderUC) CreateOrder(order models.Order) (*models.Order, error) {
 
 	var r0 *models.Order
 	var r1 error
-	if rf, ok := ret.Get(0).(func(models.Order) (*models.Order, error)); ok {
-		return rf(order)
+	if rf, ok := ret.Get(0).(func(context.Context, models.Order) (*models.Order, error)); ok {
+		return rf(ctx, order)
 	}
-	if rf, ok := ret.Get(0).(func(models.Order) *models.Order); ok {
-		r0 = rf(order)
+	if rf, ok := ret.Get(0).(func(context.Context, models.Order) *models.Order); ok {
+		r0 = rf(ctx, order)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.Order)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(models.Order) error); ok {
-		r1 = rf(order)
+	if rf, ok := ret.Get(1).(func(context.Context, models.Order) error); ok {
+		r1 = rf(ctx, order)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -44,17 +46,42 @@ func (_m *OrderUC) CreateOrder(order models.Order) (*models.Order, error) {
 	return r0, r1
 }
 
+func (_m *OrderUC) CreatePaymentIntent(ctx context.Context, userID uuid.UUID, items []*models.Item) (string, string, error) {
+	ret := _m.Called(ctx, userID, items)
+	if len(ret) == 0 {
+		panic("no return value specified for CreatePaymentIntent")
+	}
+	var paymentID, clientSecret string
+	if fn, ok := ret.Get(0).(func(context.Context, uuid.UUID, []*models.Item) (string, string, error)); ok {
+		return fn(ctx, userID, items)
+	}
+	if fn, ok := ret.Get(0).(func(context.Context, uuid.UUID, []*models.Item) string); ok {
+		paymentID = fn(ctx, userID, items)
+	} else if ret.Get(0) != nil {
+		paymentID = ret.Get(0).(string)
+	}
+	if fn, ok := ret.Get(1).(func(context.Context, uuid.UUID, []*models.Item) string); ok {
+		clientSecret = fn(ctx, userID, items)
+	} else if ret.Get(1) != nil {
+		clientSecret = ret.Get(1).(string)
+	}
+	if fn, ok := ret.Get(2).(func(context.Context, uuid.UUID, []*models.Item) error); ok {
+		return paymentID, clientSecret, fn(ctx, userID, items)
+	}
+	return paymentID, clientSecret, ret.Error(2)
+}
+
 // DeleteOrder provides a mock function with given fields: orderId
-func (_m *OrderUC) DeleteOrder(orderId uuid.UUID) error {
-	ret := _m.Called(orderId)
+func (_m *OrderUC) DeleteOrder(ctx context.Context, orderId uuid.UUID) error {
+	ret := _m.Called(ctx, orderId)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteOrder")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) error); ok {
-		r0 = rf(orderId)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) error); ok {
+		r0 = rf(ctx, orderId)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -63,38 +90,45 @@ func (_m *OrderUC) DeleteOrder(orderId uuid.UUID) error {
 }
 
 // GetAllOrders provides a mock function with given fields:
-func (_m *OrderUC) GetAllOrders() ([]*models.Order, error) {
-	ret := _m.Called()
+func (_m *OrderUC) GetAllOrders(ctx context.Context, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ret := _m.Called(ctx, page, pageSize)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAllOrders")
 	}
 
 	var r0 []*models.Order
-	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]*models.Order, error)); ok {
-		return rf()
+	var r1 int
+	var r2 int64
+	if rf, ok := ret.Get(0).(func(context.Context, int, int) ([]*models.Order, int, int64, error)); ok {
+		return rf(ctx, page, pageSize)
 	}
-	if rf, ok := ret.Get(0).(func() []*models.Order); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context, int, int) []*models.Order); ok {
+		r0 = rf(ctx, page, pageSize)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*models.Order)
 		}
 	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context, int, int) int); ok {
+		r1 = rf(ctx, page, pageSize)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Int(1)
 	}
-
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, int, int) int64); ok {
+		r2 = rf(ctx, page, pageSize)
+	} else if ret.Get(2) != nil {
+		r2 = ret.Get(2).(int64)
+	}
+	if rf, ok := ret.Get(3).(func(context.Context, int, int) error); ok {
+		return r0, r1, r2, rf(ctx, page, pageSize)
+	}
+	return r0, r1, r2, ret.Error(3)
 }
 
 // GetSingleOrder provides a mock function with given fields: id
-func (_m *OrderUC) GetSingleOrder(id uuid.UUID) (*models.Order, error) {
-	ret := _m.Called(id)
+func (_m *OrderUC) GetSingleOrder(ctx context.Context, id uuid.UUID) (*models.Order, error) {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetSingleOrder")
@@ -102,19 +136,19 @@ func (_m *OrderUC) GetSingleOrder(id uuid.UUID) (*models.Order, error) {
 
 	var r0 *models.Order
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) (*models.Order, error)); ok {
-		return rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) (*models.Order, error)); ok {
+		return rf(ctx, id)
 	}
-	if rf, ok := ret.Get(0).(func(uuid.UUID) *models.Order); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID) *models.Order); ok {
+		r0 = rf(ctx, id)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*models.Order)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(uuid.UUID) error); ok {
-		r1 = rf(id)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -123,33 +157,40 @@ func (_m *OrderUC) GetSingleOrder(id uuid.UUID) (*models.Order, error) {
 }
 
 // GetUserOrders provides a mock function with given fields: userId
-func (_m *OrderUC) GetUserOrders(userId uuid.UUID) ([]*models.Order, error) {
-	ret := _m.Called(userId)
+func (_m *OrderUC) GetUserOrders(ctx context.Context, userId uuid.UUID, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ret := _m.Called(ctx, userId, page, pageSize)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetUserOrders")
 	}
 
 	var r0 []*models.Order
-	var r1 error
-	if rf, ok := ret.Get(0).(func(uuid.UUID) ([]*models.Order, error)); ok {
-		return rf(userId)
+	var r1 int
+	var r2 int64
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, int) ([]*models.Order, int, int64, error)); ok {
+		return rf(ctx, userId, page, pageSize)
 	}
-	if rf, ok := ret.Get(0).(func(uuid.UUID) []*models.Order); ok {
-		r0 = rf(userId)
+	if rf, ok := ret.Get(0).(func(context.Context, uuid.UUID, int, int) []*models.Order); ok {
+		r0 = rf(ctx, userId, page, pageSize)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*models.Order)
 		}
 	}
-
-	if rf, ok := ret.Get(1).(func(uuid.UUID) error); ok {
-		r1 = rf(userId)
+	if rf, ok := ret.Get(1).(func(context.Context, uuid.UUID, int, int) int); ok {
+		r1 = rf(ctx, userId, page, pageSize)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Int(1)
 	}
-
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, uuid.UUID, int, int) int64); ok {
+		r2 = rf(ctx, userId, page, pageSize)
+	} else if ret.Get(2) != nil {
+		r2 = ret.Get(2).(int64)
+	}
+	if rf, ok := ret.Get(3).(func(context.Context, uuid.UUID, int, int) error); ok {
+		return r0, r1, r2, rf(ctx, userId, page, pageSize)
+	}
+	return r0, r1, r2, ret.Error(3)
 }
 
 // UpdateOrder provides a mock function with given fields: order
@@ -186,6 +227,17 @@ func (_m *OrderUC) UpdateStock(productId uuid.UUID, quantity int) error {
 	}
 
 	return r0
+}
+
+func (_m *OrderUC) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
+	ret := _m.Called(ctx, orderID, status)
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateOrderStatus")
+	}
+	if fn, ok := ret.Get(0).(func(context.Context, uuid.UUID, string) error); ok {
+		return fn(ctx, orderID, status)
+	}
+	return ret.Error(0)
 }
 
 // NewOrderUC creates a new instance of OrderUC. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

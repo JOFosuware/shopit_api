@@ -1,9 +1,10 @@
 package delivery
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jofosuware/go/shopit/pkg/utils"
-	"net/http"
 )
 
 func (h *PaymentHandler) PaymentRouter() http.Handler {

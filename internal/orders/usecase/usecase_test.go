@@ -1,185 +1,243 @@
 package usecase_test
 
 import (
+	"context"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
+	"github.com/jofosuware/go/shopit/internal/orders"
 	"github.com/jofosuware/go/shopit/internal/orders/mocks"
 	"github.com/jofosuware/go/shopit/internal/orders/usecase"
-	"github.com/stretchr/testify/assert"
+	mockCard "github.com/jofosuware/go/shopit/pkg/card/mocks"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/stripe/stripe-go/v72"
 )
 
-func TestCreateOrder(t *testing.T) {
+func TestCreatePaymentIntentUsesCatalogQuoteInUSDMinorUnits(t *testing.T) {
 	repo := mocks.NewRepo(t)
-	o := usecase.NewOrderUC(repo)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	userID, productID := uuid.New(), uuid.New()
+	items := []*models.Item{{ProductID: productID, Quantity: 3}}
+	repo.On("QuoteItems", ctx, items).
+		Return([]*models.Item{{ProductID: productID, Name: "Item", Price: 4, Quantity: 3}}, 12, nil).Once()
+	carder.On("CreatePaymentIntent", ctx, "usd", int64(1200), userID.String()).
+		Return(&stripe.PaymentIntent{ID: "pi_quoted", ClientSecret: "secret"}, "", nil).Once()
 
-	t.Run("Order is successfully created", func(t *testing.T) {
-		order := &models.Order{
-			OrderID:      uuid.New(),
-			ShippingInfo: models.Shipping{},
-			OrderItems: []*models.Item{
-				{
-					ItemID:    uuid.New(),
-					Name:      "Test",
-					ProductID: uuid.New(),
-					OrderID:   uuid.New(),
-					CreatedAt: time.Now(),
-				},
-			},
-			PaymentInfo:   models.Payment{},
-			ItemPrice:     0,
-			TaxPrice:      0,
-			ShippingPrice: 0,
-			TotalPrice:    0,
-			UserID:        uuid.New(),
-			PaidAt:        time.Now(),
-			OrderStatus:   "Processing",
-			DeliveredAt:   time.Time{},
-		}
-
-		// Use matchers to allow the ShippingInfo to have an updated OrderID.
-		repo.On("InsertOrder", *order).Return(order, nil)
-		repo.
-			On("InsertShipping", mock.MatchedBy(func(s models.Shipping) bool {
-				// We expect the OrderID to have been populated (i.e. not the zero value).
-				return s.OrderID != uuid.Nil
-			})).
-			Return(&models.Shipping{}, nil)
-		repo.
-			On("InsertItem", mock.AnythingOfType("models.Item")).
-			Return(&models.Item{}, nil)
-		repo.
-			On("InsertPayment", mock.AnythingOfType("models.Payment")).
-			Return(&models.Payment{}, nil)
-
-		// Call CreateOrder which should also update fields such as PaidAt and OrderStatus.
-		createdOrder, err := o.CreateOrder(*order)
-		require.NoError(t, err)
-
-		// Assertions to match the changes in the CreateOrder method.
-		assert.NotNil(t, createdOrder)
-		assert.Equal(t, "Test", createdOrder.OrderItems[0].Name)
-
-		// New checks: Verify that OrderStatus is set to "Processing" and PaidAt is non-zero.
-		assert.Equal(t, "Processing", createdOrder.OrderStatus)
-		assert.False(t, createdOrder.PaidAt.IsZero(), "PaidAt timestamp should be set")
-	})
+	paymentID, clientSecret, err := uc.CreatePaymentIntent(ctx, userID, items)
+	require.NoError(t, err)
+	require.Equal(t, "pi_quoted", paymentID)
+	require.Equal(t, "secret", clientSecret)
 }
 
-func TestGetSingleOrder(t *testing.T) {
+func TestCreateOrderDelegatesAtomicCreation(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	order := models.Order{
+		UserID:       uuid.New(),
+		OrderItems:   []*models.Item{{ProductID: uuid.New(), Quantity: 2}},
+		ShippingInfo: models.Shipping{Address: "1 Main St"},
+		PaymentInfo:  models.Payment{ID: "payment-1"},
+	}
+	created := &models.Order{OrderID: uuid.New(), UserID: order.UserID}
+	quoted := []*models.Item{{ProductID: order.OrderItems[0].ProductID, Price: 5, Quantity: 2, Name: "Item"}}
+	repo.On("QuoteItems", ctx, order.OrderItems).Return(quoted, 10, nil).Once()
+	carder.On("RetrievePaymentIntent", ctx, "payment-1").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 1000,
+		Metadata: map[string]string{"user_id": order.UserID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "payment-1").Return(false, nil).Once()
+	repo.On("PaymentIntentRefundPending", ctx, "payment-1").Return(false, nil).Once()
+	repo.On("CreateOrder", ctx, mock.MatchedBy(func(got models.Order) bool {
+		return got.UserID == order.UserID && got.ItemPrice == 10 && got.TotalPrice == 10 &&
+			got.TaxPrice == 0 && got.ShippingPrice == 0 && got.OrderStatus == "Processing" &&
+			got.PaymentInfo.Status == "succeeded"
+	})).Return(created, nil).Once()
 
-	o := usecase.NewOrderUC(repo)
-
-	t.Run("Order is successfully retrieved", func(t *testing.T) {
-		id := uuid.New()
-
-		repo.On("FetchOrderById", id).Return(&models.Order{UserID: id}, nil)
-		repo.On("FetchShippingById", id).Return(&models.Shipping{}, nil)
-		repo.On("FetchItemsById", id).Return([]*models.Item{}, nil)
-		repo.On("FetchPaymentById", id).Return(&models.Payment{}, nil)
-
-		order, err := o.GetSingleOrder(id)
-		require.NoError(t, err)
-
-		assert.NotNil(t, order)
-		assert.Equal(t, order.UserID, id)
-	})
+	got, err := uc.CreateOrder(ctx, order)
+	require.NoError(t, err)
+	require.Same(t, created, got)
 }
 
-func TestGetUserOrders(t *testing.T) {
+func TestCreateOrderReturnsRepositoryFailure(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	order := models.Order{UserID: uuid.New(), PaymentInfo: models.Payment{ID: "pi_1"}, OrderItems: []*models.Item{{ProductID: uuid.New(), Quantity: 1}}}
+	createErr := errors.New("transaction failed")
+	repo.On("QuoteItems", ctx, order.OrderItems).Return([]*models.Item{{ProductID: order.OrderItems[0].ProductID, Price: 2, Quantity: 1}}, 2, nil).Once()
+	carder.On("RetrievePaymentIntent", ctx, "pi_1").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 200,
+		Metadata: map[string]string{"user_id": order.UserID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "pi_1").Return(false, nil).Once()
+	repo.On("PaymentIntentRefundPending", ctx, "pi_1").Return(false, nil).Once()
+	repo.On("CreateOrder", ctx, mock.Anything).Return((*models.Order)(nil), createErr).Once()
 
-	o := usecase.NewOrderUC(repo)
-
-	t.Run("Orders are successfully retrieved", func(t *testing.T) {
-		userId := uuid.New()
-		orderId := uuid.New()
-
-		repo.On("FetchOrdersById", userId).Return([]*models.Order{{UserID: userId, OrderID: orderId}}, nil)
-		repo.On("FetchShippingById", orderId).Return(&models.Shipping{}, nil)
-		repo.On("FetchItemsById", orderId).Return([]*models.Item{}, nil)
-		repo.On("FetchPaymentById", orderId).Return(&models.Payment{}, nil)
-
-		orders, err := o.GetUserOrders(userId)
-		require.NoError(t, err)
-
-		assert.NotNil(t, orders)
-		assert.Equal(t, orders[0].UserID, userId)
-	})
+	got, err := uc.CreateOrder(ctx, order)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, createErr)
 }
 
-func TestGetAllOrders(t *testing.T) {
+func TestCreateOrderRefundsCheckoutIntentWhenPriceChanges(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	userID, productID := uuid.New(), uuid.New()
+	order := models.Order{
+		UserID: userID, PaymentInfo: models.Payment{ID: "pi_wrong_amount"},
+		OrderItems: []*models.Item{{ProductID: productID, Quantity: 1}},
+	}
+	carder.On("RetrievePaymentIntent", ctx, "pi_wrong_amount").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 500,
+		Metadata: map[string]string{"user_id": userID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "pi_wrong_amount").Return(false, nil).Once()
+	repo.On("PaymentIntentRefundPending", ctx, "pi_wrong_amount").Return(false, nil).Once()
+	repo.On("QuoteItems", ctx, order.OrderItems).
+		Return([]*models.Item{{ProductID: productID, Price: 10, Quantity: 1}}, 10, nil).Once()
+	carder.On("RefundPaymentIntent", ctx, "pi_wrong_amount").Return(nil).Once()
+	repo.On("RefundPaymentIntentIfUnused", ctx, "pi_wrong_amount", mock.Anything).
+		Run(func(args mock.Arguments) {
+			refund := args.Get(2).(func(context.Context, string) error)
+			require.NoError(t, refund(ctx, "pi_wrong_amount"))
+		}).Return(nil).Once()
 
-	o := usecase.NewOrderUC(repo)
-
-	t.Run("All orders are successfully retrieved", func(t *testing.T) {
-
-		repo.On("FetchAllOrders").Return([]*models.Order{}, nil)
-		repo.On("FetchAllShipping").Return([]*models.Shipping{}, nil)
-		repo.On("FetchAllItems").Return([]*models.Item{}, nil)
-		repo.On("FetchAllPayment").Return([]*models.Payment{}, nil)
-
-		orders, err := o.GetAllOrders()
-		require.NoError(t, err)
-
-		assert.NotNil(t, orders)
-	})
+	created, err := uc.CreateOrder(ctx, order)
+	require.Nil(t, created)
+	require.ErrorIs(t, err, orders.ErrOrderPriceChanged)
+	repo.AssertNotCalled(t, "CreateOrder", mock.Anything, mock.Anything)
 }
 
-func TestUpdateOrder(t *testing.T) {
+func TestCreateOrderRefundsKnownInventoryConflict(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	userID, productID := uuid.New(), uuid.New()
+	order := models.Order{
+		UserID: userID, PaymentInfo: models.Payment{ID: "pi_out_of_stock"},
+		OrderItems: []*models.Item{{ProductID: productID, Quantity: 1}},
+	}
+	repo.On("QuoteItems", ctx, order.OrderItems).
+		Return([]*models.Item{{ProductID: productID, Price: 10, Quantity: 1}}, 10, nil).Once()
+	carder.On("RetrievePaymentIntent", ctx, "pi_out_of_stock").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 1000,
+		Metadata: map[string]string{"user_id": userID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "pi_out_of_stock").Return(false, nil).Once()
+	repo.On("PaymentIntentRefundPending", ctx, "pi_out_of_stock").Return(false, nil).Once()
+	repo.On("CreateOrder", ctx, mock.Anything).
+		Return((*models.Order)(nil), orders.ErrInsufficientStock).Once()
+	carder.On("RefundPaymentIntent", ctx, "pi_out_of_stock").Return(nil).Once()
+	repo.On("RefundPaymentIntentIfUnused", ctx, "pi_out_of_stock", mock.Anything).
+		Run(func(args mock.Arguments) {
+			refund := args.Get(2).(func(context.Context, string) error)
+			require.NoError(t, refund(ctx, "pi_out_of_stock"))
+		}).Return(nil).Once()
 
-	o := usecase.NewOrderUC(repo)
-
-	t.Run("Order is successfully updated", func(t *testing.T) {
-		ord := models.Order{}
-
-		repo.On("UpdateOrder", ord.OrderID, ord).Return(nil)
-
-		err := o.UpdateOrder(ord)
-		require.NoError(t, err)
-	})
+	created, err := uc.CreateOrder(ctx, order)
+	require.Nil(t, created)
+	require.ErrorIs(t, err, orders.ErrInsufficientStock)
 }
 
-func TestUpdateStock(t *testing.T) {
+func TestCreateOrderDoesNotRefundIntentAlreadyUsed(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	userID, productID := uuid.New(), uuid.New()
+	order := models.Order{
+		UserID: userID, PaymentInfo: models.Payment{ID: "pi_reused"},
+		OrderItems: []*models.Item{{ProductID: productID, Quantity: 1}},
+	}
+	carder.On("RetrievePaymentIntent", ctx, "pi_reused").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 1000,
+		Metadata: map[string]string{"user_id": userID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "pi_reused").Return(true, nil).Once()
 
-	o := usecase.NewOrderUC(repo)
-
-	t.Run("Stock is successfully updated", func(t *testing.T) {
-		ord := models.Order{
-			OrderItems: []*models.Item{
-				{
-					ProductID: uuid.New(),
-					Quantity:  5,
-				},
-			},
-		}
-
-		repo.On("UpdateStock", ord.OrderItems[0].ProductID, ord.OrderItems[0].Quantity).Return(nil)
-
-		err := o.UpdateStock(ord.OrderItems[0].ProductID, ord.OrderItems[0].Quantity)
-		require.NoError(t, err)
-	})
+	created, err := uc.CreateOrder(ctx, order)
+	require.Nil(t, created)
+	require.ErrorIs(t, err, orders.ErrPaymentAlreadyUsed)
+	repo.AssertNotCalled(t, "QuoteItems", mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "CreateOrder", mock.Anything, mock.Anything)
+	carder.AssertNotCalled(t, "RefundPaymentIntent", mock.Anything, mock.Anything)
 }
 
-func TestDeleteOrder(t *testing.T) {
+func TestCreateOrderRetriesPendingRefundInsteadOfCreatingOrder(t *testing.T) {
 	repo := mocks.NewRepo(t)
+	carder := mockCard.NewCarder(t)
+	uc := usecase.NewOrderUC(repo, carder)
+	ctx := context.Background()
+	userID, productID := uuid.New(), uuid.New()
+	order := models.Order{
+		UserID: userID, PaymentInfo: models.Payment{ID: "pi_pending_refund"},
+		OrderItems: []*models.Item{{ProductID: productID, Quantity: 1}},
+	}
+	carder.On("RetrievePaymentIntent", ctx, "pi_pending_refund").Return(&stripe.PaymentIntent{
+		Status: stripe.PaymentIntentStatusSucceeded, Currency: "usd", Amount: 1000,
+		Metadata: map[string]string{"user_id": userID.String(), "purpose": "order_checkout"},
+	}, nil).Once()
+	repo.On("PaymentIntentUsed", ctx, "pi_pending_refund").Return(false, nil).Once()
+	repo.On("PaymentIntentRefundPending", ctx, "pi_pending_refund").Return(true, nil).Once()
+	carder.On("RefundPaymentIntent", ctx, "pi_pending_refund").Return(nil).Once()
+	repo.On("RefundPaymentIntentIfUnused", ctx, "pi_pending_refund", mock.Anything).
+		Run(func(args mock.Arguments) {
+			refund := args.Get(2).(func(context.Context, string) error)
+			require.NoError(t, refund(ctx, "pi_pending_refund"))
+		}).Return(nil).Once()
 
-	o := usecase.NewOrderUC(repo)
+	created, err := uc.CreateOrder(ctx, order)
+	require.Nil(t, created)
+	require.ErrorIs(t, err, orders.ErrPaymentAlreadyUsed)
+	repo.AssertNotCalled(t, "QuoteItems", mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "CreateOrder", mock.Anything, mock.Anything)
+}
 
-	t.Run("Order is successfully deleted", func(t *testing.T) {
-		id := uuid.New()
+func TestGetAllOrdersLoadsRelatedRecordsFromRepository(t *testing.T) {
+	repo := mocks.NewRepo(t)
+	uc := usecase.NewOrderUC(repo, nil)
+	ctx := context.Background()
+	orderID := uuid.New()
+	order := &models.Order{OrderID: orderID, ShippingInfo: models.Shipping{Address: "A"}}
+	repo.On("FetchOrdersWithDetails", ctx, (*uuid.UUID)(nil), (*uuid.UUID)(nil), 1, 20).
+		Return([]*models.Order{order}, 1, int64(0), nil).Once()
 
-		repo.On("DeleteOrderById", id).Return(nil)
+	got, _, _, err := uc.GetAllOrders(ctx, 1, 20)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, orderID, got[0].OrderID)
+	require.Equal(t, "A", got[0].ShippingInfo.Address)
+}
 
-		err := o.DeleteOrder(id)
-		require.NoError(t, err)
-	})
+func TestGetSingleOrderReturnsNotFoundWhenDetailsQueryHasNoRows(t *testing.T) {
+	repo := mocks.NewRepo(t)
+	uc := usecase.NewOrderUC(repo, nil)
+	ctx := context.Background()
+	orderID := uuid.New()
+	repo.On("FetchOrdersWithDetails", ctx, mock.MatchedBy(func(id *uuid.UUID) bool {
+		return id != nil && *id == orderID
+	}), (*uuid.UUID)(nil), 1, 1).Return([]*models.Order{}, 0, int64(0), nil).Once()
+
+	got, err := uc.GetSingleOrder(ctx, orderID)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, orders.ErrOrderNotFound)
+}
+
+func TestUpdateOrderStatusRejectsUnsupportedStatus(t *testing.T) {
+	repo := mocks.NewRepo(t)
+	uc := usecase.NewOrderUC(repo, nil)
+
+	err := uc.UpdateOrderStatus(context.Background(), uuid.New(), "Cancelled")
+	require.ErrorIs(t, err, orders.ErrInvalidOrderStatus)
+	repo.AssertNotCalled(t, "UpdateOrderStatus", mock.Anything, mock.Anything, mock.Anything)
 }

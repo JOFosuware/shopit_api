@@ -43,16 +43,14 @@ func (s *Serve) Setup() {
 	prodUseCase := prodUC.NewProductsUC(cld, prodRepo)
 	prodHandlers = prodHTTP.NewProdHandlers(s.logger, prodUseCase)
 
-	// Order setups
-	ordRepo := ordRepository.NewOrdersRepository(s.DB)
-	ordUseCase := ordUC.NewOrderUC(ordRepo)
-	ordHandlers = ordHTTP.NewOrderHandlers(s.logger, ordUseCase)
-
-	// Payment setups
+	// Payment and order setups
 	cd := card.Card{
 		Secret:   s.cfg.Stripe.Secret,
 		Key:      s.cfg.Stripe.Key,
 		Currency: "usd",
 	}
-	payHandlers = payHTTP.NewPaymentHandler(s.cfg, s.logger, &cd)
+	ordRepo := ordRepository.NewOrdersRepository(s.DB)
+	ordUseCase := ordUC.NewOrderUC(ordRepo, &cd)
+	ordHandlers = ordHTTP.NewOrderHandlers(s.logger, ordUseCase)
+	payHandlers = payHTTP.NewPaymentHandler(s.cfg, s.logger, ordUseCase)
 }
