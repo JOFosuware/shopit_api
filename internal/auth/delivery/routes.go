@@ -34,10 +34,10 @@ import (
 func (h *AuthHandlers) AuthRouter() http.Handler {
 	mux := chi.NewRouter()
 
-	mux.Post("/register", h.Register)
-	mux.Post("/login", h.Login)
-	mux.Post("/password/forgot", h.SendPasswordResetEmail)
-	mux.Put("/password/reset/{token}", h.ResetPassword)
+	mux.With(h.registerRateLimiter.Middleware).Post("/register", h.Register)
+	mux.With(h.loginRateLimiter.Middleware).Post("/login", h.Login)
+	mux.With(h.forgotPasswordRateLimiter.Middleware).Post("/password/forgot", h.SendPasswordResetEmail)
+	mux.With(h.resetPasswordRateLimiter.Middleware).Put("/password/reset/{token}", h.ResetPassword)
 
 	mux.Group(func(r chi.Router) {
 		r.Use(h.authenticate)

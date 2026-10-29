@@ -12,6 +12,7 @@ import (
 	payment "github.com/jofosuware/go/shopit/internal/payment/delivery"
 	productCleanup "github.com/jofosuware/go/shopit/internal/products/cleanup"
 	product "github.com/jofosuware/go/shopit/internal/products/delivery"
+	"github.com/jofosuware/go/shopit/pkg/ratelimiter"
 
 	"github.com/jofosuware/go/shopit/config"
 	"github.com/jofosuware/go/shopit/pkg/logger"
@@ -28,6 +29,7 @@ type Serve struct {
 	logger               logger.Logger
 	DB                   *sql.DB
 	productCleanupWorker *productCleanup.Worker
+	apiRateLimiter       *ratelimiter.RateLimiter
 }
 
 func NewServer(cfg *config.Config, logger logger.Logger, db *sql.DB) *Serve {

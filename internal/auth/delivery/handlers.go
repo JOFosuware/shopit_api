@@ -7,14 +7,17 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/auth"
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/pkg/logger"
+	"github.com/jofosuware/go/shopit/pkg/ratelimiter"
 	"github.com/jofosuware/go/shopit/pkg/utils"
 	"github.com/jofosuware/go/shopit/pkg/validator"
+	"golang.org/x/time/rate"
 )
 
 // UserContextKey is the request context key used to store the authenticated user.
@@ -23,8 +26,12 @@ const UserContextKey = utils.UserContextKey
 // AuthHandlers provides HTTP handler methods for authentication endpoints.
 // It depends on a logger and an AuthenticateUC usecase interface for business logic.
 type AuthHandlers struct {
-	logger logger.Logger
-	authUC auth.AuthenticateUC
+	logger                    logger.Logger
+	authUC                    auth.AuthenticateUC
+	registerRateLimiter       *ratelimiter.RateLimiter
+	loginRateLimiter          *ratelimiter.RateLimiter
+	forgotPasswordRateLimiter *ratelimiter.RateLimiter
+	resetPasswordRateLimiter  *ratelimiter.RateLimiter
 }
 
 // NewAuthHandlers returns a new AuthHandlers with the provided logger and usecase.
@@ -32,10 +39,56 @@ func NewAuthHandlers(
 	logger logger.Logger,
 	authUC auth.AuthenticateUC,
 ) *AuthHandlers {
-	return &AuthHandlers{
-		logger: logger,
-		authUC: authUC,
+	handlers, err := NewAuthHandlersWithTrustedProxies(logger, authUC, nil)
+	if err != nil {
+		panic(err)
 	}
+	return handlers
+}
+
+// NewAuthHandlersWithTrustedProxies configures per-IP limits for public
+// authentication endpoints. Only proxy CIDRs controlled by the deployment
+// should be provided.
+func NewAuthHandlersWithTrustedProxies(
+	logger logger.Logger,
+	authUC auth.AuthenticateUC,
+	trustedProxyCIDRs []string,
+) (*AuthHandlers, error) {
+	newLimiter := func(refillInterval time.Duration, burst int) (*ratelimiter.RateLimiter, error) {
+		return ratelimiter.NewRateLimiterWithOptions(ratelimiter.Options{
+			Rate:              rate.Every(refillInterval),
+			Burst:             burst,
+			MaxVisitors:       10_000,
+			VisitorTTL:        10 * time.Minute,
+			TrustedProxyCIDRs: trustedProxyCIDRs,
+		})
+	}
+
+	registerLimiter, err := newLimiter(20*time.Minute, 3)
+	if err != nil {
+		return nil, err
+	}
+	loginLimiter, err := newLimiter(12*time.Second, 5)
+	if err != nil {
+		return nil, err
+	}
+	forgotPasswordLimiter, err := newLimiter(20*time.Minute, 3)
+	if err != nil {
+		return nil, err
+	}
+	resetPasswordLimiter, err := newLimiter(12*time.Minute, 5)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthHandlers{
+		logger:                    logger,
+		authUC:                    authUC,
+		registerRateLimiter:       registerLimiter,
+		loginRateLimiter:          loginLimiter,
+		forgotPasswordRateLimiter: forgotPasswordLimiter,
+		resetPasswordRateLimiter:  resetPasswordLimiter,
+	}, nil
 }
 
 // Register registers a new user.

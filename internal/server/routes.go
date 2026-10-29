@@ -21,6 +21,7 @@ func (s *Serve) Routes() http.Handler {
 	}))
 
 	mux.Use(middleware.Recoverer)
+	mux.Use(s.apiRateLimiter.Middleware)
 
 	mux.Mount("/api/v1/auth", authHandlers.AuthRouter())
 	mux.Mount("/api/v1/product", prodHandlers.ProdRouter())

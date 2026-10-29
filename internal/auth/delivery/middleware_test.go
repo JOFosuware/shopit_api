@@ -15,6 +15,26 @@ import (
 )
 
 func TestAuthMiddleware(t *testing.T) {
+	t.Run("limits repeated login attempts by client IP", func(t *testing.T) {
+		h, logger, _ := newTestHandler(t)
+		logger.On("Errorf", mock.Anything, mock.Anything, mock.Anything).Times(5)
+
+		for attempt := 0; attempt < 6; attempt++ {
+			request := httptest.NewRequest(http.MethodPost, "/login", nil)
+			request.RemoteAddr = "198.51.100.10:12345"
+			response := httptest.NewRecorder()
+
+			h.AuthRouter().ServeHTTP(response, request)
+
+			if attempt < 5 {
+				assert.Equal(t, http.StatusBadRequest, response.Code)
+			} else {
+				assert.Equal(t, http.StatusTooManyRequests, response.Code)
+				assert.Equal(t, "12", response.Header().Get("Retry-After"))
+			}
+		}
+	})
+
 	t.Run("rejects a missing bearer token", func(t *testing.T) {
 		h, _, authUC := newTestHandler(t)
 		req := httptest.NewRequest(http.MethodGet, "/me", nil)

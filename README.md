@@ -171,6 +171,7 @@ Inventory or price conflicts after a successful charge trigger a full refund. Re
       Port: 5000
       PprofPort: ":5555"
       Mode: Development
+      RateLimitTrustedProxies: ""
       JwtSecretKey: "your_jwt_secret_key"
       CookieName: "jwt-token"
       ReadTimeout: 5
@@ -218,6 +219,20 @@ Inventory or price conflicts after a successful charge trigger a full refund. Re
       Key: "your_cloudinary_api_key"
       Secret: "your_cloudinary_api_secret"
     ```
+
+The API applies a process-local per-client limit with a refill rate of 5
+requests per second and a burst of 100. Authentication endpoints have tighter
+per-IP token buckets: login starts with a burst of 5 and refills one attempt
+every 12 seconds; registration and password-reset email start with a burst of
+3 and refill one request every 20 minutes; password reset starts with a burst
+of 5 and refills one request every 12 minutes. If the service is behind a
+reverse proxy, set `RATE_LIMIT_TRUSTED_PROXIES` to a comma-separated list of
+the proxy's trusted IP CIDRs (for example, `10.0.0.0/8`). Forwarded client IPs
+are used only when the immediate peer is in that list. Do not trust all proxy
+addresses indiscriminately. Visitor state is bounded and aged out; when the
+capacity is reached, an existing visitor entry is evicted to avoid denying all
+new clients. These in-memory limits are per process; multiple application
+instances require a shared rate-limit store for a cluster-wide policy.
 
 4.  **Run database migrations:**
 

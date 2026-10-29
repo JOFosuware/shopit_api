@@ -26,17 +26,18 @@ type Config struct {
 
 // ServerConfig Server config struct
 type ServerConfig struct {
-	AppVersion        string
-	Port              string
-	Mode              string
-	JwtSecretKey      string
-	CookieName        string
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	SSL               bool
-	CtxDefaultTimeout time.Duration
-	CSRF              bool
-	Debug             bool
+	AppVersion              string
+	Port                    string
+	Mode                    string
+	RateLimitTrustedProxies string
+	JwtSecretKey            string
+	CookieName              string
+	ReadTimeout             time.Duration
+	WriteTimeout            time.Duration
+	SSL                     bool
+	CtxDefaultTimeout       time.Duration
+	CSRF                    bool
+	Debug                   bool
 }
 
 // Logger config
@@ -105,6 +106,7 @@ func LoadConfig(filename string) (*viper.Viper, error) {
 	v.BindEnv("server.mode", "SERVER_MODE")
 	v.BindEnv("server.jwtsecretkey", "JWT_SECRET_KEY")
 	v.BindEnv("server.cookiename", "COOKIE_NAME")
+	v.BindEnv("server.ratelimittrustedproxies", "RATE_LIMIT_TRUSTED_PROXIES")
 
 	v.BindEnv("postgres.url", "DATABASE_URL")
 
