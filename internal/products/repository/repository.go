@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/products"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 )
 
 // ProdRepository handles product-related database operations.
@@ -29,6 +30,8 @@ func NewProdRepository(db *sql.DB) *ProdRepository {
 
 // InsertProduct inserts a new product into the products table.
 func (r *ProdRepository) InsertProduct(parent context.Context, p *models.Product) (models.Product, error) {
+	_, span := observability.StartSpan(parent, "db.products.insert_product")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -74,6 +77,8 @@ func (r *ProdRepository) InsertProduct(parent context.Context, p *models.Product
 
 // InsertImageUrl inserts a product image record into the images table.
 func (r *ProdRepository) InsertImageUrl(parent context.Context, img *models.Images) (models.Images, error) {
+	_, span := observability.StartSpan(parent, "db.products.insert_image")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -114,6 +119,8 @@ func (r *ProdRepository) InsertImageUrl(parent context.Context, img *models.Imag
 
 // FetchProductByName returns products filtered by name (ILIKE) with pagination.
 func (r *ProdRepository) FetchProductByName(parent context.Context, keyword string, page int) ([]models.Product, int, int, error) {
+	_, span := observability.StartSpan(parent, "db.products.search")
+	defer span.Finish()
 	if !products.IsValidProductPage(page) {
 		return nil, 0, 0, products.ErrInvalidPage
 	}
@@ -180,6 +187,8 @@ func (r *ProdRepository) FetchProductByName(parent context.Context, keyword stri
 
 // FetchImageUrlById returns image records for a given product ID.
 func (r *ProdRepository) FetchImageUrlById(parent context.Context, id uuid.UUID) ([]models.Images, error) {
+	_, span := observability.StartSpan(parent, "db.products.get_images")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -217,6 +226,8 @@ func (r *ProdRepository) FetchImageUrlById(parent context.Context, id uuid.UUID)
 
 // FetchImagesByProductIDs returns images for many products in a single query.
 func (r *ProdRepository) FetchImagesByProductIDs(parent context.Context, productIDs []uuid.UUID) (map[uuid.UUID][]models.Images, error) {
+	_, span := observability.StartSpan(parent, "db.products.get_images_batch")
+	defer span.Finish()
 	result := make(map[uuid.UUID][]models.Images, len(productIDs))
 	if len(productIDs) == 0 {
 		return result, nil
@@ -255,6 +266,8 @@ func (r *ProdRepository) FetchImagesByProductIDs(parent context.Context, product
 
 // FetchAllProducts returns all products.
 func (r *ProdRepository) FetchAllProducts(parent context.Context) ([]*models.Product, error) {
+	_, span := observability.StartSpan(parent, "db.products.list")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -298,6 +311,8 @@ func (r *ProdRepository) FetchAllProducts(parent context.Context) ([]*models.Pro
 
 // FetchProductById returns a product by its ID.
 func (r *ProdRepository) FetchProductById(parent context.Context, id uuid.UUID) (*models.Product, error) {
+	_, span := observability.StartSpan(parent, "db.products.get")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -331,6 +346,8 @@ func (r *ProdRepository) FetchProductById(parent context.Context, id uuid.UUID) 
 
 // UpdateProductWithImages updates product fields and replaces image records in one transaction.
 func (r *ProdRepository) UpdateProductWithImages(parent context.Context, productID uuid.UUID, p *models.Product, images []models.Images) (models.Product, []models.Images, error) {
+	_, span := observability.StartSpan(parent, "db.products.update_with_images")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -420,6 +437,8 @@ func (r *ProdRepository) UpdateProductWithImages(parent context.Context, product
 // DeleteProductAndQueueImageCleanup atomically removes a product and schedules
 // all of its Cloudinary images for asynchronous deletion.
 func (r *ProdRepository) DeleteProductAndQueueImageCleanup(parent context.Context, productID uuid.UUID, additionalPublicIDs []string) error {
+	_, span := observability.StartSpan(parent, "db.products.delete_with_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -467,6 +486,8 @@ func (r *ProdRepository) DeleteProductAndQueueImageCleanup(parent context.Contex
 
 // ScheduleCloudinaryCleanup durably records Cloudinary image IDs for retryable cleanup.
 func (r *ProdRepository) ScheduleCloudinaryCleanup(parent context.Context, publicIDs []string) error {
+	_, span := observability.StartSpan(parent, "db.products.schedule_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -487,6 +508,8 @@ func (r *ProdRepository) ScheduleCloudinaryCleanup(parent context.Context, publi
 // StageCloudinaryCleanup records uploads as pending until they are adopted or
 // explicitly confirmed safe to delete.
 func (r *ProdRepository) StageCloudinaryCleanup(parent context.Context, publicIDs []string) error {
+	_, span := observability.StartSpan(parent, "db.products.stage_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -539,6 +562,8 @@ func scheduleCloudinaryCleanupTx(ctx context.Context, tx *sql.Tx, publicIDs []st
 
 // ClaimCloudinaryCleanup atomically leases available jobs across all workers.
 func (r *ProdRepository) ClaimCloudinaryCleanup(parent context.Context, limit int, lease time.Duration) ([]products.CloudinaryCleanupJob, error) {
+	_, span := observability.StartSpan(parent, "db.products.claim_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	if limit < 1 || lease <= 0 {
@@ -583,6 +608,8 @@ func (r *ProdRepository) ClaimCloudinaryCleanup(parent context.Context, limit in
 
 // CompleteCloudinaryCleanup removes a job after Cloudinary confirms deletion.
 func (r *ProdRepository) CompleteCloudinaryCleanup(parent context.Context, publicID string) error {
+	_, span := observability.StartSpan(parent, "db.products.complete_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	if _, err := r.DB.ExecContext(ctx, `delete from cloudinary_cleanup_jobs where public_id = $1`, publicID); err != nil {
@@ -593,6 +620,8 @@ func (r *ProdRepository) CompleteCloudinaryCleanup(parent context.Context, publi
 
 // RetryCloudinaryCleanup releases a failed job and stores its retry time and error.
 func (r *ProdRepository) RetryCloudinaryCleanup(parent context.Context, publicID, failure string, retryAt time.Time) error {
+	_, span := observability.StartSpan(parent, "db.products.retry_cleanup")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	result, err := r.DB.ExecContext(ctx, `
@@ -615,6 +644,8 @@ func (r *ProdRepository) RetryCloudinaryCleanup(parent context.Context, publicID
 
 // FetchReviews returns all product reviews.
 func (r *ProdRepository) FetchReviews(parent context.Context) ([]models.Reviews, error) {
+	_, span := observability.StartSpan(parent, "db.products.list_reviews")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -654,6 +685,8 @@ func (r *ProdRepository) FetchReviews(parent context.Context) ([]models.Reviews,
 
 // UpdateProduct updates a product by ID and returns the updated product.
 func (r *ProdRepository) UpdateProduct(parent context.Context, productId uuid.UUID, p *models.Product) (models.Product, error) {
+	_, span := observability.StartSpan(parent, "db.products.update")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -686,6 +719,8 @@ func (r *ProdRepository) UpdateProduct(parent context.Context, productId uuid.UU
 // InsertReviewAndUpdateProduct creates a review and recalculates its product's
 // aggregate rating in one transaction.
 func (r *ProdRepository) InsertReviewAndUpdateProduct(parent context.Context, review *models.Reviews) error {
+	_, span := observability.StartSpan(parent, "db.products.insert_review")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -716,6 +751,8 @@ func (r *ProdRepository) InsertReviewAndUpdateProduct(parent context.Context, re
 // DeleteReviewAndUpdateProduct removes a review owned by the caller, unless the
 // caller is an administrator, then recalculates the product aggregate atomically.
 func (r *ProdRepository) DeleteReviewAndUpdateProduct(parent context.Context, productID, reviewID, userID uuid.UUID, isAdmin bool) error {
+	_, span := observability.StartSpan(parent, "db.products.delete_review")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -785,6 +822,8 @@ func updateProductReviewAggregate(ctx context.Context, tx *sql.Tx, productID uui
 
 // FetchReviewById returns reviews for a given product ID.
 func (r *ProdRepository) FetchReviewById(parent context.Context, productId uuid.UUID) ([]models.Reviews, error) {
+	_, span := observability.StartSpan(parent, "db.products.get_reviews")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 

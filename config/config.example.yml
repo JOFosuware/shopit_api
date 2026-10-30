@@ -19,6 +19,12 @@ logger:
   Encoding: "console"
   Level: "info"
 
+observability:
+  service_name: "shopit-api"
+  # Set to a Jaeger agent address (for example jaeger:6831) to export spans.
+  jaeger_agent_address: ""
+  trace_sample_rate: 0.1
+
 postgres:
   Host: "localhost"
   Port: 5432

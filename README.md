@@ -29,6 +29,7 @@ This API provides a comprehensive set of endpoints to power a full-featured onli
 
 *   **And more:**
     *   Structured logging with Zap for better observability.
+    *   Prometheus metrics and Jaeger-compatible distributed tracing.
     *   Configuration management with Viper.
     *   A complete database schema with migrations.
 
@@ -188,6 +189,13 @@ Inventory or price conflicts after a successful charge trigger a full refund. Re
       Encoding: "console"
       Level: "info"
 
+    observability:
+      service_name: "shopit-api"
+      # Optional. Example: jaeger:6831
+      jaeger_agent_address: ""
+      # Fraction of requests exported when a Jaeger agent is configured.
+      trace_sample_rate: 0.1
+
     postgres:
       Host: "localhost"
       Port: 5432
@@ -233,6 +241,22 @@ addresses indiscriminately. Visitor state is bounded and aged out; when the
 capacity is reached, an existing visitor entry is evicted to avoid denying all
 new clients. These in-memory limits are per process; multiple application
 instances require a shared rate-limit store for a cluster-wide policy.
+
+### Observability
+
+Prometheus metrics are served by the application at `GET /metrics`. The
+endpoint includes request rate, status, duration, in-flight request count,
+database pool health, and standard Go/process metrics. HTTP metric labels use
+the matched route template rather than request URLs, so path parameters do not
+create unbounded metric-cardinality.
+
+Every API request creates an OpenTracing server span and honors incoming trace
+headers. Each endpoint handler, public auth/product/order use case, and active
+repository operation creates a child span. To export sampled traces to Jaeger,
+configure `JAEGER_AGENT_ADDRESS` (for example `jaeger:6831`) and optionally
+`TRACE_SAMPLE_RATE` (a number from `0` to `1`). Without an agent address, the
+application keeps the tracing API and propagation behavior but does not export
+spans. `OBSERVABILITY_SERVICE_NAME` overrides the service name.
 
 4.  **Run database migrations:**
 

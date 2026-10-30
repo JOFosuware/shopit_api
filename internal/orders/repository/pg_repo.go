@@ -15,6 +15,7 @@ import (
 
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/orders"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 )
 
 // OrdersRepository handles order-related persistence operations.
@@ -58,6 +59,8 @@ func orderItemPrice(items []*models.Item, productID uuid.UUID) int {
 
 // QuoteItems returns one trusted product snapshot per distinct product ID.
 func (o *OrdersRepository) QuoteItems(parent context.Context, items []*models.Item) ([]*models.Item, int, error) {
+	_, span := observability.StartSpan(parent, "db.orders.quote_items")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -111,6 +114,8 @@ func (o *OrdersRepository) QuoteItems(parent context.Context, items []*models.It
 
 // PaymentIntentUsed reports whether an intent is already attached to an order.
 func (o *OrdersRepository) PaymentIntentUsed(parent context.Context, paymentID string) (bool, error) {
+	_, span := observability.StartSpan(parent, "db.orders.payment_intent_used")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	if paymentID == "" {
@@ -128,6 +133,8 @@ func (o *OrdersRepository) PaymentIntentUsed(parent context.Context, paymentID s
 
 // PaymentIntentRefundPending reports whether a previous refund attempt needs retry.
 func (o *OrdersRepository) PaymentIntentRefundPending(parent context.Context, paymentID string) (bool, error) {
+	_, span := observability.StartSpan(parent, "db.orders.payment_refund_pending")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	if paymentID == "" {
@@ -151,6 +158,8 @@ func (o *OrdersRepository) RefundPaymentIntentIfUnused(
 	paymentID string,
 	refundPayment func(context.Context, string) error,
 ) error {
+	_, span := observability.StartSpan(parent, "db.orders.refund_payment_intent")
+	defer span.Finish()
 	if paymentID == "" || refundPayment == nil {
 		return orders.ErrInvalidOrderRequest
 	}
@@ -231,6 +240,8 @@ func (o *OrdersRepository) RefundPaymentIntentIfUnused(
 
 // CreateOrder inserts an order and all related records in one transaction.
 func (o *OrdersRepository) CreateOrder(parent context.Context, order models.Order) (*models.Order, error) {
+	_, span := observability.StartSpan(parent, "db.orders.create")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
@@ -424,6 +435,8 @@ func (o *OrdersRepository) CreateOrder(parent context.Context, order models.Orde
 // FetchOrdersWithDetails returns orders and related records from one query.
 // Either filter may be nil; both filters, when present, are applied together.
 func (o *OrdersRepository) FetchOrdersWithDetails(parent context.Context, orderID, userID *uuid.UUID, page, pageSize int) ([]*models.Order, int, int64, error) {
+	_, span := observability.StartSpan(parent, "db.orders.fetch_with_details")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	if page < 1 || pageSize < 1 || pageSize > 100 || page-1 > math.MaxInt/pageSize {
@@ -535,6 +548,8 @@ func (o *OrdersRepository) FetchOrdersWithDetails(parent context.Context, orderI
 
 // DeleteOrder deletes an order using the caller's context.
 func (o *OrdersRepository) DeleteOrder(parent context.Context, orderID uuid.UUID) error {
+	_, span := observability.StartSpan(parent, "db.orders.delete")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 	result, err := o.DB.ExecContext(ctx, `delete from orders where order_id = $1`, orderID)
@@ -1029,6 +1044,8 @@ func (o *OrdersRepository) FetchAllShipping() ([]*models.Shipping, error) {
 
 // UpdateOrderStatus changes fulfillment status without touching already-reserved stock.
 func (o *OrdersRepository) UpdateOrderStatus(parent context.Context, orderID uuid.UUID, status string) error {
+	_, span := observability.StartSpan(parent, "db.orders.update_status")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 

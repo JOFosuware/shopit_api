@@ -8,6 +8,7 @@ package delivery
 import (
 	"net/http"
 
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	"github.com/jofosuware/go/shopit/pkg/utils"
 
 	"github.com/go-chi/chi/v5"
@@ -34,26 +35,26 @@ import (
 func (h *AuthHandlers) AuthRouter() http.Handler {
 	mux := chi.NewRouter()
 
-	mux.With(h.registerRateLimiter.Middleware).Post("/register", h.Register)
-	mux.With(h.loginRateLimiter.Middleware).Post("/login", h.Login)
-	mux.With(h.forgotPasswordRateLimiter.Middleware).Post("/password/forgot", h.SendPasswordResetEmail)
-	mux.With(h.resetPasswordRateLimiter.Middleware).Put("/password/reset/{token}", h.ResetPassword)
+	mux.With(h.registerRateLimiter.Middleware).Post("/register", observability.Handler("auth.handler.register", h.Register))
+	mux.With(h.loginRateLimiter.Middleware).Post("/login", observability.Handler("auth.handler.login", h.Login))
+	mux.With(h.forgotPasswordRateLimiter.Middleware).Post("/password/forgot", observability.Handler("auth.handler.password_reset_request", h.SendPasswordResetEmail))
+	mux.With(h.resetPasswordRateLimiter.Middleware).Put("/password/reset/{token}", observability.Handler("auth.handler.password_reset", h.ResetPassword))
 
 	mux.Group(func(r chi.Router) {
 		r.Use(h.authenticate)
 
-		r.Get("/me", h.GetUserProfile)
-		r.Post("/logout", h.Logout)
-		r.Put("/password/update", h.UpdatePassword)
-		r.Put("/me/update", h.UpdateProfile)
+		r.Get("/me", observability.Handler("auth.handler.profile", h.GetUserProfile))
+		r.Post("/logout", observability.Handler("auth.handler.logout", h.Logout))
+		r.Put("/password/update", observability.Handler("auth.handler.update_password", h.UpdatePassword))
+		r.Put("/me/update", observability.Handler("auth.handler.update_profile", h.UpdateProfile))
 
 		// Admin-only routes
 		r.Group(func(r chi.Router) {
 			r.Use(utils.AdminOnly)
-			r.Get("/admin/users", h.GetAllUsers)
-			r.Get("/admin/user/{id}", h.GetUserDetails)
-			r.Put("/admin/user/{id}", h.UpdateUser)
-			r.Delete("/admin/user/{id}", h.DeleteUser)
+			r.Get("/admin/users", observability.Handler("auth.handler.list_users", h.GetAllUsers))
+			r.Get("/admin/user/{id}", observability.Handler("auth.handler.get_user", h.GetUserDetails))
+			r.Put("/admin/user/{id}", observability.Handler("auth.handler.update_user", h.UpdateUser))
+			r.Delete("/admin/user/{id}", observability.Handler("auth.handler.delete_user", h.DeleteUser))
 		})
 	})
 

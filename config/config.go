@@ -12,16 +12,24 @@ import (
 
 // Config is App config struct
 type Config struct {
-	Server     ServerConfig
-	Postgres   PostgresConfig
-	Cookie     Cookie
-	Logger     Logger
-	Stripe     Stripe
-	SMTP       SMTP
-	Cloudinary Cloudinary
-	SecretKey  string
-	Frontend   string
-	EmailFrom  string `mapstructure:"email_from"`
+	Server        ServerConfig
+	Postgres      PostgresConfig
+	Cookie        Cookie
+	Logger        Logger
+	Stripe        Stripe
+	SMTP          SMTP
+	Cloudinary    Cloudinary
+	Observability Observability
+	SecretKey     string
+	Frontend      string
+	EmailFrom     string `mapstructure:"email_from"`
+}
+
+// Observability configures Prometheus and Jaeger-compatible tracing.
+type Observability struct {
+	ServiceName        string  `mapstructure:"service_name"`
+	JaegerAgentAddress string  `mapstructure:"jaeger_agent_address"`
+	TraceSampleRate    float64 `mapstructure:"trace_sample_rate"`
 }
 
 // ServerConfig Server config struct
@@ -123,6 +131,9 @@ func LoadConfig(filename string) (*viper.Viper, error) {
 	v.BindEnv("cloudinary.secret", "CLOUDINARY_SECRET")
 	v.BindEnv("frontend", "FRONTEND_URL")
 	v.BindEnv("email_from", "EMAIL_FROM")
+	v.BindEnv("observability.service_name", "OBSERVABILITY_SERVICE_NAME")
+	v.BindEnv("observability.jaeger_agent_address", "JAEGER_AGENT_ADDRESS")
+	v.BindEnv("observability.trace_sample_rate", "TRACE_SAMPLE_RATE")
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {

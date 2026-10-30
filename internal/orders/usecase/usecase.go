@@ -11,6 +11,7 @@ import (
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/orders"
 	"github.com/jofosuware/go/shopit/pkg/card"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	"github.com/stripe/stripe-go/v72"
 )
 
@@ -27,6 +28,8 @@ func NewOrderUC(repo orders.Repo, payment card.Carder) *OrderUC {
 
 // CreatePaymentIntent creates a user-bound intent for the current catalog quote.
 func (o *OrderUC) CreatePaymentIntent(ctx context.Context, userID uuid.UUID, items []*models.Item) (string, string, error) {
+	ctx, span := observability.StartSpan(ctx, "payment.create_intent")
+	defer span.Finish()
 	if userID == uuid.Nil || len(items) == 0 || len(items) > orders.MaxOrderItems {
 		return "", "", orders.ErrInvalidOrderRequest
 	}
@@ -57,6 +60,8 @@ func (o *OrderUC) CreatePaymentIntent(ctx context.Context, userID uuid.UUID, ite
 
 // CreateOrder verifies payment and persists an order using current product data.
 func (o *OrderUC) CreateOrder(ctx context.Context, order models.Order) (*models.Order, error) {
+	ctx, span := observability.StartSpan(ctx, "orders.create")
+	defer span.Finish()
 	if len(order.OrderItems) == 0 || len(order.OrderItems) > orders.MaxOrderItems ||
 		order.UserID == uuid.Nil || order.PaymentInfo.ID == "" {
 		return nil, orders.ErrInvalidOrderRequest
@@ -138,6 +143,8 @@ func (o *OrderUC) CreateOrder(ctx context.Context, order models.Order) (*models.
 }
 
 func (o *OrderUC) refundForCheckoutConflict(ctx context.Context, paymentID string, cause error) error {
+	ctx, span := observability.StartSpan(ctx, "orders.refund_checkout_conflict")
+	defer span.Finish()
 	err := o.repo.RefundPaymentIntentIfUnused(ctx, paymentID, o.card.RefundPaymentIntent)
 	if errors.Is(err, orders.ErrPaymentAlreadyUsed) {
 		return err
@@ -153,6 +160,8 @@ func (o *OrderUC) refundForCheckoutConflict(ctx context.Context, paymentID strin
 
 // GetSingleOrder returns an order by ID with its related records.
 func (o *OrderUC) GetSingleOrder(ctx context.Context, orderID uuid.UUID) (*models.Order, error) {
+	ctx, span := observability.StartSpan(ctx, "orders.get")
+	defer span.Finish()
 	found, _, _, err := o.repo.FetchOrdersWithDetails(ctx, &orderID, nil, 1, 1)
 	if err != nil {
 		return nil, fmt.Errorf("fetching order: %w", err)
@@ -165,6 +174,8 @@ func (o *OrderUC) GetSingleOrder(ctx context.Context, orderID uuid.UUID) (*model
 
 // GetUserOrders returns all orders for a specific user.
 func (o *OrderUC) GetUserOrders(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ctx, span := observability.StartSpan(ctx, "orders.list_user")
+	defer span.Finish()
 	ordersForUser, count, totalAmount, err := o.repo.FetchOrdersWithDetails(ctx, nil, &userID, page, pageSize)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("fetching user orders: %w", err)
@@ -174,6 +185,8 @@ func (o *OrderUC) GetUserOrders(ctx context.Context, userID uuid.UUID, page, pag
 
 // GetAllOrders returns all orders and their related records.
 func (o *OrderUC) GetAllOrders(ctx context.Context, page, pageSize int) ([]*models.Order, int, int64, error) {
+	ctx, span := observability.StartSpan(ctx, "orders.list")
+	defer span.Finish()
 	ordersList, count, totalAmount, err := o.repo.FetchOrdersWithDetails(ctx, nil, nil, page, pageSize)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("fetching all orders: %w", err)
@@ -183,6 +196,8 @@ func (o *OrderUC) GetAllOrders(ctx context.Context, page, pageSize int) ([]*mode
 
 // UpdateOrderStatus validates and atomically persists an order status change.
 func (o *OrderUC) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, status string) error {
+	ctx, span := observability.StartSpan(ctx, "orders.update_status")
+	defer span.Finish()
 	if status != "Processing" && status != "Delivered" {
 		return orders.ErrInvalidOrderStatus
 	}
@@ -194,6 +209,8 @@ func (o *OrderUC) UpdateOrderStatus(ctx context.Context, orderID uuid.UUID, stat
 
 // DeleteOrder deletes an order by ID.
 func (o *OrderUC) DeleteOrder(ctx context.Context, orderID uuid.UUID) error {
+	ctx, span := observability.StartSpan(ctx, "orders.delete")
+	defer span.Finish()
 	if err := o.repo.DeleteOrder(ctx, orderID); err != nil {
 		return fmt.Errorf("deleting order: %w", err)
 	}

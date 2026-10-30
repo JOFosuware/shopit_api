@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/jofosuware/go/shopit/internal/auth"
 	"github.com/jofosuware/go/shopit/internal/models"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 )
 
@@ -73,6 +74,8 @@ func (r *AuthRepository) InsertUser(u models.User) (*models.User, error) {
 
 // UpdateUser updates an existing user in the users table.
 func (r *AuthRepository) UpdateUser(ctx context.Context, u models.User) error {
+	_, span := observability.StartSpan(ctx, "db.auth.update_user")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -105,6 +108,8 @@ func (r *AuthRepository) UpdateUser(ctx context.Context, u models.User) error {
 // authentication credentials. When revokeResetTokens is true, all reset tokens for
 // the user are consumed in the same transaction.
 func (r *AuthRepository) UpdatePasswordAndReplaceToken(ctx context.Context, u models.User, t *models.Token, revokeResetTokens bool) error {
+	_, span := observability.StartSpan(ctx, "db.auth.replace_password_token")
+	defer span.Finish()
 	if t == nil {
 		return errors.New("token must not be nil")
 	}
@@ -182,6 +187,8 @@ func (r *AuthRepository) InsertAvatar(a *models.Avatar) (models.Avatar, error) {
 
 // FetchAvatarById fetches an avatar by user ID.
 func (r *AuthRepository) FetchAvatarById(ctx context.Context, userId uuid.UUID) (models.Avatar, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.get_avatar")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -233,6 +240,8 @@ func (r *AuthRepository) DeleteAvatar() error {
 
 // FetchUserByEmail fetches a user by email.
 func (r *AuthRepository) FetchUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.get_user_by_email")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -262,6 +271,8 @@ func (r *AuthRepository) FetchUserByEmail(ctx context.Context, email string) (*m
 
 // InsertToken inserts a token for a user, deleting any existing tokens for that user.
 func (r *AuthRepository) InsertToken(ctx context.Context, t *models.Token, userID uuid.UUID) error {
+	_, span := observability.StartSpan(ctx, "db.auth.insert_token")
+	defer span.Finish()
 	if t == nil {
 		return errors.New("token must not be nil")
 	}
@@ -361,6 +372,8 @@ func (r *AuthRepository) FetchUserByToken(token string) (*models.User, error) {
 
 // FetchUserById fetches a user by user ID.
 func (r *AuthRepository) FetchUserById(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.get_user")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -386,6 +399,8 @@ func (r *AuthRepository) FetchUserById(ctx context.Context, id uuid.UUID) (*mode
 
 // FetchUserByTokenWithScope fetches a user by token string and required scope.
 func (r *AuthRepository) FetchUserByTokenWithScope(ctx context.Context, token string, scope string) (*models.User, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.get_user_by_token")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -435,6 +450,8 @@ func (r *AuthRepository) DeleteAvatarById(ctx context.Context, id string) error 
 
 // FetchAllUsers returns all users in the database.
 func (r *AuthRepository) FetchAllUsers(ctx context.Context) ([]*models.UserPublic, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.list_users")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -473,6 +490,8 @@ func (r *AuthRepository) FetchAllUsers(ctx context.Context) ([]*models.UserPubli
 
 // DeleteUserById deletes a user by user ID.
 func (r *AuthRepository) DeleteUserById(ctx context.Context, id uuid.UUID) error {
+	_, span := observability.StartSpan(ctx, "db.auth.delete_user")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -510,6 +529,8 @@ func (r *AuthRepository) DeleteTokenById(userId uuid.UUID) error {
 
 // DeleteAuthenticationToken removes only the presented authentication token.
 func (r *AuthRepository) DeleteAuthenticationToken(ctx context.Context, plainTextToken string) error {
+	_, span := observability.StartSpan(ctx, "db.auth.delete_token")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -536,6 +557,8 @@ func (r *AuthRepository) DeleteAuthenticationToken(ctx context.Context, plainTex
 
 // UpdateProfile updates profile fields and optionally replaces the avatar in one transaction.
 func (r *AuthRepository) UpdateProfile(ctx context.Context, userID uuid.UUID, name, email string, avatar *models.Avatar) error {
+	_, span := observability.StartSpan(ctx, "db.auth.update_profile")
+	defer span.Finish()
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -577,6 +600,8 @@ func (r *AuthRepository) UpdateProfile(ctx context.Context, userID uuid.UUID, na
 // CreateUserAtomically inserts User, Avatar, and Token within a single database transaction.
 // This ensures that the database state is consistent across all necessary write operations.
 func (r *AuthRepository) CreateUserAtomically(ctx context.Context, user models.User, avatar models.Avatar, t *models.Token) (*models.User, error) {
+	_, span := observability.StartSpan(ctx, "db.auth.create_user")
+	defer span.Finish()
 	if t == nil {
 		return nil, errors.New("token must not be nil")
 	}

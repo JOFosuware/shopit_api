@@ -12,6 +12,7 @@ import (
 	payment "github.com/jofosuware/go/shopit/internal/payment/delivery"
 	productCleanup "github.com/jofosuware/go/shopit/internal/products/cleanup"
 	product "github.com/jofosuware/go/shopit/internal/products/delivery"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	"github.com/jofosuware/go/shopit/pkg/ratelimiter"
 
 	"github.com/jofosuware/go/shopit/config"
@@ -30,6 +31,7 @@ type Serve struct {
 	DB                   *sql.DB
 	productCleanupWorker *productCleanup.Worker
 	apiRateLimiter       *ratelimiter.RateLimiter
+	observability        *observability.Observability
 }
 
 func NewServer(cfg *config.Config, logger logger.Logger, db *sql.DB) *Serve {
@@ -41,6 +43,9 @@ func NewServer(cfg *config.Config, logger logger.Logger, db *sql.DB) *Serve {
 }
 
 func (s *Serve) Run() error {
+	if s.observability != nil {
+		defer s.observability.Close()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if s.productCleanupWorker != nil {

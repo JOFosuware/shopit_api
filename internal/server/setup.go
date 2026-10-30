@@ -19,6 +19,7 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/card"
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 	"github.com/jofosuware/go/shopit/pkg/mailer"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	"github.com/jofosuware/go/shopit/pkg/ratelimiter"
 	"github.com/jofosuware/go/shopit/pkg/token"
 	"github.com/jofosuware/go/shopit/pkg/utils"
@@ -27,8 +28,15 @@ import (
 
 // Setup instantiate handlers and repositories
 func (s *Serve) Setup() {
-	trustedProxyCIDRs := splitTrustedProxyCIDRs(s.cfg.Server.RateLimitTrustedProxies)
 	var err error
+	s.observability, err = observability.New(observability.Config{
+		ServiceName: s.cfg.Observability.ServiceName, JaegerAgentAddress: s.cfg.Observability.JaegerAgentAddress, TraceSampleRate: s.cfg.Observability.TraceSampleRate,
+	})
+	if err != nil {
+		s.logger.Fatalf("configuring observability: %v", err)
+		return
+	}
+	trustedProxyCIDRs := splitTrustedProxyCIDRs(s.cfg.Server.RateLimitTrustedProxies)
 	s.apiRateLimiter, err = ratelimiter.NewRateLimiterWithOptions(ratelimiter.Options{
 		Rate:              rate.Every(200 * time.Millisecond),
 		Burst:             100,

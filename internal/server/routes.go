@@ -21,7 +21,15 @@ func (s *Serve) Routes() http.Handler {
 	}))
 
 	mux.Use(middleware.Recoverer)
+	mux.Use(s.observability.Middleware)
+	mux.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.observability.ObserveDatabase(s.DB)
+			next.ServeHTTP(w, r)
+		})
+	})
 	mux.Use(s.apiRateLimiter.Middleware)
+	mux.Handle("/metrics", s.observability.MetricsHandler())
 
 	mux.Mount("/api/v1/auth", authHandlers.AuthRouter())
 	mux.Mount("/api/v1/product", prodHandlers.ProdRouter())

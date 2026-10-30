@@ -11,6 +11,7 @@ import (
 	"github.com/jofosuware/go/shopit/internal/models"
 	"github.com/jofosuware/go/shopit/internal/products"
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 )
 
 const cloudinaryUploadTimeout = 5 * time.Minute
@@ -31,6 +32,8 @@ func NewProductsUC(cld cloudinary.CloudUploader, repo products.Repo) *ProductsUC
 
 // CreateProduct creates a new product and uploads its images to cloudinary.
 func (p *ProductsUC) CreateProduct(ctx context.Context, prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "products.create")
+	defer span.Finish()
 	prod, err := p.repo.InsertProduct(ctx, &prod)
 	if err != nil {
 		return nil, fmt.Errorf("saving product: %w", err)
@@ -69,6 +72,8 @@ func (p *ProductsUC) CreateProduct(ctx context.Context, prod models.Product, img
 
 // GetProducts returns products filtered by keyword with pagination.
 func (p *ProductsUC) GetProducts(ctx context.Context, keyword string, page int) (*models.GetProd, error) {
+	ctx, span := observability.StartSpan(ctx, "products.list")
+	defer span.Finish()
 	if !products.IsValidProductPage(page) {
 		return nil, products.ErrInvalidPage
 	}
@@ -102,6 +107,8 @@ func (p *ProductsUC) GetProducts(ctx context.Context, keyword string, page int) 
 
 // GetAdminProducts returns all products for admin.
 func (p *ProductsUC) GetAdminProducts(ctx context.Context) ([]*models.Product, error) {
+	ctx, span := observability.StartSpan(ctx, "products.list_admin")
+	defer span.Finish()
 	prods, err := p.repo.FetchAllProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetching products: %w", err)
@@ -112,6 +119,8 @@ func (p *ProductsUC) GetAdminProducts(ctx context.Context) ([]*models.Product, e
 
 // GetSingleProduct returns a product by ID, including images and reviews.
 func (p *ProductsUC) GetSingleProduct(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	ctx, span := observability.StartSpan(ctx, "products.get")
+	defer span.Finish()
 	prod, err := p.repo.FetchProductById(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("fetching product: %w", err)
@@ -135,6 +144,8 @@ func (p *ProductsUC) GetSingleProduct(ctx context.Context, id uuid.UUID) (*model
 
 // UpdateProduct updates a product's details and images by ID.
 func (p *ProductsUC) UpdateProduct(ctx context.Context, id uuid.UUID, prod models.Product, img []*multipart.FileHeader) (*models.ProdResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "products.update")
+	defer span.Finish()
 	var images []models.Images
 	var err error
 	if len(img) > 0 {
@@ -243,6 +254,8 @@ func (p *ProductsUC) uploadImages(ctx context.Context, headers []*multipart.File
 
 // DeleteProduct deletes a product and its images by ID.
 func (p *ProductsUC) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	ctx, span := observability.StartSpan(ctx, "products.delete")
+	defer span.Finish()
 	err := p.repo.DeleteProductAndQueueImageCleanup(ctx, id, nil)
 	if err != nil {
 		return fmt.Errorf("deleting product: %w", err)
@@ -252,6 +265,8 @@ func (p *ProductsUC) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 
 // CreateProductReview creates a review and updates product aggregates atomically.
 func (p *ProductsUC) CreateProductReview(ctx context.Context, review models.Reviews) error {
+	ctx, span := observability.StartSpan(ctx, "products.create_review")
+	defer span.Finish()
 	if review.Rating < 1 || review.Rating > 5 {
 		return products.ErrInvalidRating
 	}
@@ -263,6 +278,8 @@ func (p *ProductsUC) CreateProductReview(ctx context.Context, review models.Revi
 
 // GetProductReviews returns all reviews for a product.
 func (p *ProductsUC) GetProductReviews(ctx context.Context, id uuid.UUID) ([]models.Reviews, error) {
+	ctx, span := observability.StartSpan(ctx, "products.list_reviews")
+	defer span.Finish()
 	reviews, err := p.repo.FetchReviewById(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("fetching product reviews: %w", err)
@@ -273,6 +290,8 @@ func (p *ProductsUC) GetProductReviews(ctx context.Context, id uuid.UUID) ([]mod
 
 // DeleteProductReview deletes a review and updates the product's ratings.
 func (p *ProductsUC) DeleteProductReview(ctx context.Context, actor *models.User, productID, reviewID uuid.UUID) error {
+	ctx, span := observability.StartSpan(ctx, "products.delete_review")
+	defer span.Finish()
 	if actor == nil {
 		return errors.New("authenticated user is required to delete a review")
 	}

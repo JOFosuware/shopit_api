@@ -20,6 +20,7 @@ import (
 	"github.com/jofosuware/go/shopit/pkg/bcrypt"
 	"github.com/jofosuware/go/shopit/pkg/cloudinary"
 	"github.com/jofosuware/go/shopit/pkg/mailer"
+	"github.com/jofosuware/go/shopit/pkg/observability"
 	pkgtoken "github.com/jofosuware/go/shopit/pkg/token"
 	cryptobcrypt "golang.org/x/crypto/bcrypt"
 )
@@ -72,6 +73,8 @@ func mapUserToPublic(u *models.User) models.UserPublic {
 
 // Register creates a user with its avatar and authentication token.
 func (a *AuthUC) Register(ctx context.Context, user models.User, avatar string) (*models.UserResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.register")
+	defer span.Finish()
 	_, err := a.repo.FetchUserByEmail(ctx, user.Email)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("error fetching user: %w", err)
@@ -142,6 +145,8 @@ func (a *AuthUC) destroyAvatar(publicID string) error {
 
 // Authenticate resolves an unexpired authentication token to its user.
 func (a *AuthUC) Authenticate(ctx context.Context, plainTextToken string) (*models.User, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.authenticate")
+	defer span.Finish()
 	if plainTextToken == "" {
 		return nil, auth.ErrTokenNotFound
 	}
@@ -161,6 +166,8 @@ func (a *AuthUC) Authenticate(ctx context.Context, plainTextToken string) (*mode
 
 // Login authenticates a user and returns a user response with token.
 func (a *AuthUC) Login(ctx context.Context, email, password string) (*models.UserResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.login")
+	defer span.Finish()
 	u, err := a.repo.FetchUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -207,6 +214,8 @@ func (a *AuthUC) Login(ctx context.Context, email, password string) (*models.Use
 
 // SendPasswordResetEmail sends a password reset email to the given address.
 func (a *AuthUC) SendPasswordResetEmail(ctx context.Context, email string) (*models.Response, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.password_reset_request")
+	defer span.Finish()
 	if email == "" {
 		return nil, errors.New("user must provide an email")
 	}
@@ -259,6 +268,8 @@ func passwordResetAcceptedResponse() *models.Response {
 
 // ResetPassword resets a user's password using the provided token.
 func (a *AuthUC) ResetPassword(ctx context.Context, newToken, password string) (*models.UserResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.password_reset")
+	defer span.Finish()
 	if newToken == "" || password == "" {
 		return nil, errors.New("bad link")
 	}
@@ -305,6 +316,8 @@ func (a *AuthUC) ResetPassword(ctx context.Context, newToken, password string) (
 
 // UpdatePassword updates the user's password and rotates their authentication token.
 func (a *AuthUC) UpdatePassword(ctx context.Context, userID uuid.UUID, passwords models.Passwords) (*models.UserResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.update_password")
+	defer span.Finish()
 	user, err := a.repo.FetchUserById(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -354,6 +367,8 @@ func (a *AuthUC) UpdatePassword(ctx context.Context, userID uuid.UUID, passwords
 
 // UpdateProfile updates the profile and, when provided, replaces the avatar.
 func (a *AuthUC) UpdateProfile(ctx context.Context, user models.User, avatar string) error {
+	ctx, span := observability.StartSpan(ctx, "auth.update_profile")
+	defer span.Finish()
 	if avatar == "" {
 		if err := a.repo.UpdateProfile(ctx, user.ID, user.Name, user.Email, nil); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -405,6 +420,8 @@ func (a *AuthUC) UpdateProfile(ctx context.Context, user models.User, avatar str
 
 // GetAllUsers returns public user data for an administrator.
 func (a *AuthUC) GetAllUsers(ctx context.Context, actor *models.User) ([]*models.UserPublic, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.list_users")
+	defer span.Finish()
 	if actor == nil || actor.Role != "admin" {
 		return nil, auth.ErrForbidden
 	}
@@ -418,6 +435,8 @@ func (a *AuthUC) GetAllUsers(ctx context.Context, actor *models.User) ([]*models
 
 // GetUserDetails returns public details for the requested user.
 func (a *AuthUC) GetUserDetails(ctx context.Context, actor *models.User, userID uuid.UUID) (*models.UserPublic, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.get_user")
+	defer span.Finish()
 	if actor == nil || (actor.Role != "admin" && actor.ID != userID) {
 		return nil, auth.ErrUserAccessDenied
 	}
@@ -445,6 +464,8 @@ func (a *AuthUC) GetUserDetails(ctx context.Context, actor *models.User, userID 
 
 // UpdateUser updates a user's public profile fields.
 func (a *AuthUC) UpdateUser(ctx context.Context, actor *models.User, userID uuid.UUID, user models.User) (*models.UserResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "auth.update_user")
+	defer span.Finish()
 	if actor == nil || actor.Role != "admin" {
 		return nil, auth.ErrForbidden
 	}
@@ -478,6 +499,8 @@ func (a *AuthUC) UpdateUser(ctx context.Context, actor *models.User, userID uuid
 
 // DeleteUser deletes a user and their avatar.
 func (a *AuthUC) DeleteUser(ctx context.Context, actor *models.User, userID uuid.UUID) error {
+	ctx, span := observability.StartSpan(ctx, "auth.delete_user")
+	defer span.Finish()
 	if actor == nil || actor.Role != "admin" {
 		return auth.ErrForbidden
 	}
@@ -505,6 +528,8 @@ func (a *AuthUC) DeleteUser(ctx context.Context, actor *models.User, userID uuid
 
 // DeleteUserToken deletes only the presented authentication token.
 func (a *AuthUC) DeleteUserToken(ctx context.Context, plainTextToken string) error {
+	ctx, span := observability.StartSpan(ctx, "auth.logout")
+	defer span.Finish()
 	err := a.repo.DeleteAuthenticationToken(ctx, plainTextToken)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %w", auth.ErrTokenNotFound, err)
