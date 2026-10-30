@@ -55,6 +55,15 @@ func NewOrderHandlers(logger logger.Logger, ordersUC orders.OrderUC) *OrderHandl
 // CreateOrder creates a new order.
 // Endpoint: POST /api/v1/orders/new
 // Expects JSON body describing order items, shipping, and payment.
+// @Summary Create an order
+// @Tags Orders
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param order body createOrderRequest true "Order payload"
+// @Success 200 {object} models.OrderResponse
+// @Failure 400,401,402,404,409,500 {object} models.Response
+// @Router /orders/new [post]
 func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -124,6 +133,14 @@ func (h *OrderHandlers) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 // GetSingleOrder returns an order by its ID.
 // Endpoint: GET /api/v1/orders/{id}
+// @Summary Get an order
+// @Tags Orders
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Order ID" format(uuid)
+// @Success 200 {object} models.OrderResponse
+// @Failure 400,401,403,404,500 {object} models.Response
+// @Router /orders/{id} [get]
 func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -163,6 +180,15 @@ func (h *OrderHandlers) GetSingleOrder(w http.ResponseWriter, r *http.Request) {
 
 // GetUserOrders returns orders for the currently authenticated user.
 // Endpoint: GET /api/v1/orders/me
+// @Summary List current user's orders
+// @Tags Orders
+// @Produce json
+// @Security BearerAuth
+// @Param page query integer false "Page" minimum(1) default(1)
+// @Param pageSize query integer false "Page size" minimum(1) maximum(100) default(20)
+// @Success 200 {object} object
+// @Failure 400,401,500 {object} models.Response
+// @Router /orders/me [get]
 func (h *OrderHandlers) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -199,6 +225,15 @@ func (h *OrderHandlers) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 
 // GetAllOrders returns all orders (admin).
 // Endpoint: GET /api/v1/orders/admin/orders
+// @Summary List all orders
+// @Tags Orders
+// @Produce json
+// @Security BearerAuth
+// @Param page query integer false "Page" minimum(1) default(1)
+// @Param pageSize query integer false "Page size" minimum(1) maximum(100) default(20)
+// @Success 200 {object} object
+// @Failure 400,401,403,500 {object} models.Response
+// @Router /orders/admin/orders [get]
 func (h *OrderHandlers) GetAllOrders(w http.ResponseWriter, r *http.Request) {
 	page, pageSize, err := parsePagination(r)
 	if err != nil {
@@ -231,6 +266,16 @@ func (h *OrderHandlers) GetAllOrders(w http.ResponseWriter, r *http.Request) {
 // UpdateOrder updates an order's status (admin).
 // Endpoint: PUT /api/v1/orders/admin/order/{id}
 // Expects form data: status.
+// @Summary Update order status
+// @Tags Orders
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Order ID" format(uuid)
+// @Param status formData string true "Status" Enums(Processing,Delivered)
+// @Success 200 {object} models.Response
+// @Failure 400,401,403,404,409,500 {object} models.Response
+// @Router /orders/admin/order/{id} [put]
 func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -271,6 +316,14 @@ func (h *OrderHandlers) UpdateOrder(w http.ResponseWriter, r *http.Request) {
 
 // DeleteOrder deletes an order (admin).
 // Endpoint: DELETE /api/v1/orders/admin/order/{id}
+// @Summary Delete an order
+// @Tags Orders
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Order ID" format(uuid)
+// @Success 200 {object} models.Response
+// @Failure 400,401,403,404,500 {object} models.Response
+// @Router /orders/admin/order/{id} [delete]
 func (h *OrderHandlers) DeleteOrder(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 

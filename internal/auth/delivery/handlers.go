@@ -94,6 +94,17 @@ func NewAuthHandlersWithTrustedProxies(
 // Register registers a new user.
 // Endpoint: POST /api/v1/auth/register
 // Expects multipart form data: name, email, password, avatar.
+// @Summary Register a user
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Param name formData string true "Name"
+// @Param email formData string true "Email"
+// @Param password formData string true "Password" minlength(8)
+// @Param avatar formData string true "Avatar data"
+// @Success 200 {object} models.UserResponse
+// @Failure 400,409,502,500 {object} models.Response
+// @Router /auth/register [post]
 func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(100000)
 	if err != nil {
@@ -150,6 +161,14 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 // Login authenticates a user and returns a token.
 // Endpoint: POST /api/v1/auth/login
 // Expects JSON body: email, password.
+// @Summary Log in
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param credentials body object true "Email and password"
+// @Success 200 {object} models.UserResponse
+// @Failure 400,401,500 {object} models.Response
+// @Router /auth/login [post]
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -192,6 +211,14 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 // SendPasswordResetEmail sends a password reset email.
 // Endpoint: POST /api/v1/auth/password/forgot
 // Expects form data: email.
+// @Summary Request a password reset
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Param email formData string true "Email"
+// @Success 202 {object} models.Response
+// @Failure 400 {object} models.Response
+// @Router /auth/password/forgot [post]
 func (h *AuthHandlers) SendPasswordResetEmail(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(10000)
 	if err != nil {
@@ -230,6 +257,16 @@ func (h *AuthHandlers) writePasswordResetAccepted(w http.ResponseWriter) {
 // ResetPassword resets a user's password using a reset token.
 // Endpoint: PUT /api/v1/auth/password/reset/{token}
 // Expects form data: password, confirmPassword.
+// @Summary Reset a password
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Param token path string true "Password reset token"
+// @Param password formData string true "New password" minlength(8)
+// @Param confirmPassword formData string true "New password confirmation"
+// @Success 200 {object} models.UserResponse
+// @Failure 400,422,500 {object} models.Response
+// @Router /auth/password/reset/{token} [put]
 func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	t := chi.URLParam(r, "token")
 	if t == "" {
@@ -280,6 +317,13 @@ func (h *AuthHandlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 // GetUserProfile returns the profile of the authenticated user.
 // Endpoint: GET /api/v1/auth/me
+// @Summary Get current user profile
+// @Tags Authentication
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} models.UserResponse
+// @Failure 401,404,500 {object} models.Response
+// @Router /auth/me [get]
 func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	actor, ok := authenticatedUser(r.Context())
 	if !ok {
@@ -314,6 +358,16 @@ func (h *AuthHandlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 // UpdatePassword updates the authenticated user's password.
 // Endpoint: PUT /api/v1/auth/password/update
 // Expects form data: oldPassword, password.
+// @Summary Update current user password
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param oldPassword formData string true "Current password"
+// @Param password formData string true "New password" minlength(8)
+// @Success 200 {object} models.UserResponse
+// @Failure 400,401,404,500 {object} models.Response
+// @Router /auth/password/update [put]
 func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	user, ok := authenticatedUser(r.Context())
 	if !ok {
@@ -367,6 +421,17 @@ func (h *AuthHandlers) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 // UpdateProfile updates the authenticated user's profile and avatar.
 // Endpoint: PUT /api/v1/auth/me/update
 // Expects form data: name, email, avatar.
+// @Summary Update current user profile
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param name formData string true "Name"
+// @Param email formData string true "Email"
+// @Param avatar formData string false "Optional avatar data"
+// @Success 200 {object} models.Response
+// @Failure 400,401,404,409,502,500 {object} models.Response
+// @Router /auth/me/update [put]
 func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := authenticatedUser(r.Context())
 	if !ok {
@@ -432,6 +497,13 @@ func (h *AuthHandlers) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // Logout deletes the provided token and logs out the user.
 // Endpoint: POST /api/v1/auth/logout
 // Expects an Authorization bearer token.
+// @Summary Log out
+// @Tags Authentication
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} models.Response
+// @Failure 400,401,500 {object} models.Response
+// @Router /auth/logout [post]
 func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	t := bearerToken(r)
 
@@ -473,6 +545,13 @@ func bearerToken(r *http.Request) string {
 
 // GetAllUsers returns all users (admin).
 // Endpoint: GET /api/v1/auth/admin/users
+// @Summary List users
+// @Tags Authentication
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} object
+// @Failure 401,403,500 {object} models.Response
+// @Router /auth/admin/users [get]
 func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	actor, ok := authenticatedUser(r.Context())
 	if !ok {
@@ -507,6 +586,14 @@ func (h *AuthHandlers) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 // GetUserDetails returns details for a specific user (admin).
 // Endpoint: GET /api/v1/auth/admin/user/{id}
 // Expects URL param: id (UUID).
+// @Summary Get a user
+// @Tags Authentication
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "User ID" format(uuid)
+// @Success 200 {object} models.UserResponse
+// @Failure 400,401,403,404,500 {object} models.Response
+// @Router /auth/admin/user/{id} [get]
 func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -553,6 +640,18 @@ func (h *AuthHandlers) GetUserDetails(w http.ResponseWriter, r *http.Request) {
 // UpdateUser updates a user's profile (admin).
 // Endpoint: PUT /api/v1/auth/admin/user/{id}
 // Expects URL param: id (UUID) and form data: name, email, role.
+// @Summary Update a user
+// @Tags Authentication
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "User ID" format(uuid)
+// @Param name formData string true "Name"
+// @Param email formData string true "Email"
+// @Param role formData string true "Role" Enums(admin,user)
+// @Success 200 {object} models.UserResponse
+// @Failure 400,401,403,404,409,500 {object} models.Response
+// @Router /auth/admin/user/{id} [put]
 func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -624,6 +723,14 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 // DeleteUser deletes a user (admin).
 // Endpoint: DELETE /api/v1/auth/admin/user/{id}
 // Expects URL param: id (UUID).
+// @Summary Delete a user
+// @Tags Authentication
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "User ID" format(uuid)
+// @Success 200 {object} models.UserResponse
+// @Failure 400,401,403,404,502,500 {object} models.Response
+// @Router /auth/admin/user/{id} [delete]
 func (h *AuthHandlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {

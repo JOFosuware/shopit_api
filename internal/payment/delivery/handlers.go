@@ -50,6 +50,16 @@ func NewPaymentHandler(cfg *config.Config, logger logger.Logger, payments Paymen
 // ProcessPayment creates a PaymentIntent and returns its ID and client secret.
 // Endpoint: POST /api/v1/payment/process
 // Expects product IDs and quantities; the total is calculated from catalog data.
+// @Summary Create a Stripe PaymentIntent
+// @Description Quotes the current catalog price server-side; clients never supply the amount.
+// @Tags Payment
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param payment body createPaymentRequest true "Payment items"
+// @Success 200 {object} object{success=bool,payment_id=string,client_secret=string}
+// @Failure 400,401,404,409,500 {object} models.Response
+// @Router /payment/process [post]
 func (h *PaymentHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(utils.UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -128,6 +138,13 @@ func (h *PaymentHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) 
 
 // SendStripeApi returns the Stripe API key for the frontend to initialize Stripe.
 // Endpoint: GET /api/v1/payment/stripeapi
+// @Summary Get Stripe publishable key
+// @Tags Payment
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} object{stripeApiKey=string}
+// @Failure 401,500 {object} models.Response
+// @Router /payment/stripeapi [get]
 func (h *PaymentHandler) SendStripeApi(w http.ResponseWriter, r *http.Request) {
 	if h.cfg == nil || h.cfg.Stripe.Key == "" {
 		h.writeJSON(w, http.StatusInternalServerError, models.Response{

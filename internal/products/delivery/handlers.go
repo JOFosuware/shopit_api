@@ -40,6 +40,21 @@ func NewProdHandlers(logger logger.Logger, prodUC products.ProductUC) *ProdHandl
 // CreateProduct creates a new product (admin).
 // Endpoint: POST /api/v1/product/admin/product/new
 // Expects form data: name, price, description, images, category, seller, stock.
+// @Summary Create a product
+// @Tags Products
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param name formData string true "Name"
+// @Param price formData number true "Positive price"
+// @Param description formData string true "Description"
+// @Param category formData string false "Category"
+// @Param seller formData string true "Seller"
+// @Param stock formData integer true "Non-negative stock"
+// @Param images formData file false "Product images"
+// @Success 200 {object} models.ProdResponse
+// @Failure 400,401,403,502,500 {object} models.Response
+// @Router /product/new [post]
 func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -68,6 +83,14 @@ func (h *ProdHandlers) CreateProduct(w http.ResponseWriter, r *http.Request) {
 // GetProducts returns a list of products.
 // Endpoint: GET /api/v1/product/products
 // Query params: keyword, page.
+// @Summary List catalog products
+// @Tags Products
+// @Produce json
+// @Param keyword query string false "Search keyword"
+// @Param page query integer false "Page" minimum(1) default(1)
+// @Success 200 {object} models.GetProd
+// @Failure 400,500 {object} models.Response
+// @Router /product/products [get]
 func (h *ProdHandlers) GetProducts(w http.ResponseWriter, r *http.Request) {
 	keyword := r.URL.Query().Get("keyword")
 	page := 1
@@ -91,6 +114,13 @@ func (h *ProdHandlers) GetProducts(w http.ResponseWriter, r *http.Request) {
 
 // GetAdminProducts returns all products (admin).
 // Endpoint: GET /api/v1/product/admin/products
+// @Summary List all products
+// @Tags Products
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} object
+// @Failure 401,403,500 {object} models.Response
+// @Router /product/admin/products [get]
 func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) {
 	prods, err := h.prodUC.GetAdminProducts(r.Context())
 	if err != nil {
@@ -111,6 +141,13 @@ func (h *ProdHandlers) GetAdminProducts(w http.ResponseWriter, r *http.Request) 
 
 // GetSingleProduct returns a product by ID.
 // Endpoint: GET /api/v1/product/product/{id}
+// @Summary Get a product
+// @Tags Products
+// @Produce json
+// @Param id path string true "Product ID" format(uuid)
+// @Success 200 {object} models.ProdResponse
+// @Failure 400,404,500 {object} models.Response
+// @Router /product/product/{id} [get]
 func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -142,6 +179,22 @@ func (h *ProdHandlers) GetSingleProduct(w http.ResponseWriter, r *http.Request) 
 // UpdateProduct updates a product (admin).
 // Endpoint: PUT /api/v1/product/admin/product/{id}
 // Expects form data similar to product creation.
+// @Summary Update a product
+// @Tags Products
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Product ID" format(uuid)
+// @Param name formData string true "Name"
+// @Param price formData number true "Positive price"
+// @Param description formData string true "Description"
+// @Param category formData string false "Category"
+// @Param seller formData string true "Seller"
+// @Param stock formData integer true "Non-negative stock"
+// @Param images formData file false "Product images"
+// @Success 200 {object} models.ProdResponse
+// @Failure 400,401,403,404,502,500 {object} models.Response
+// @Router /product/admin/product/{id} [put]
 func (h *ProdHandlers) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -230,6 +283,14 @@ func parseProductForm(r *http.Request, userID uuid.UUID) (models.Product, []*mul
 
 // DeleteProduct deletes a product (admin).
 // Endpoint: DELETE /api/v1/product/admin/product/{id}
+// @Summary Delete a product
+// @Tags Products
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Product ID" format(uuid)
+// @Success 200 {object} models.Response
+// @Failure 400,401,403,404,500 {object} models.Response
+// @Router /product/admin/product/{id} [delete]
 func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -264,6 +325,17 @@ func (h *ProdHandlers) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 // CreateProductReview creates a new review for a product.
 // Endpoint: POST /api/v1/product/review
 // Expects form data: rating, comment, productId.
+// @Summary Create or update a product review
+// @Tags Products
+// @Accept multipart/form-data
+// @Produce json
+// @Security BearerAuth
+// @Param productId formData string true "Product ID" format(uuid)
+// @Param rating formData integer true "Rating" minimum(1) maximum(5)
+// @Param comment formData string false "Comment"
+// @Success 200 {object} models.Response
+// @Failure 400,401,404,500 {object} models.Response
+// @Router /product/review [put]
 func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(UserContextKey).(*models.User)
 	if !ok || user == nil {
@@ -322,6 +394,14 @@ func (h *ProdHandlers) CreateProductReview(w http.ResponseWriter, r *http.Reques
 // GetProductReviews returns reviews for a product.
 // Endpoint: GET /api/v1/product/reviews
 // Query param: id (product ID).
+// @Summary List product reviews
+// @Tags Products
+// @Produce json
+// @Security BearerAuth
+// @Param id query string true "Product ID" format(uuid)
+// @Success 200 {object} object
+// @Failure 400,401,404,500 {object} models.Response
+// @Router /product/reviews [get]
 func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -355,6 +435,15 @@ func (h *ProdHandlers) GetProductReviews(w http.ResponseWriter, r *http.Request)
 // DeleteProductReview deletes a product review.
 // Endpoint: DELETE /api/v1/product/reviews
 // Query params: productId, id (review ID).
+// @Summary Delete a product review
+// @Tags Products
+// @Produce json
+// @Security BearerAuth
+// @Param productId query string true "Product ID" format(uuid)
+// @Param id query string true "Review ID" format(uuid)
+// @Success 200 {object} models.Response
+// @Failure 400,401,403,404,500 {object} models.Response
+// @Router /product/reviews [delete]
 func (h *ProdHandlers) DeleteProductReview(w http.ResponseWriter, r *http.Request) {
 	productId := r.URL.Query().Get("productId")
 	reviewId := r.URL.Query().Get("id")

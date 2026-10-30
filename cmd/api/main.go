@@ -1,3 +1,12 @@
+// @title Shopit API
+// @version 1.0
+// @description REST API for Shopit authentication, products, orders, and payments.
+// @BasePath /api/v1
+// @schemes http https
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Supply a bearer token as `Bearer {token}`.
 package main
 
 import (
